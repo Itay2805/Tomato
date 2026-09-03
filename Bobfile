@@ -1,0 +1,129 @@
+# vim: syntax=python
+
+from pathlib import Path
+
+import bobstd.c as c
+from bob.prelude import *
+
+bob_required_version("0.1.0")
+bob_required_package_version("bobstd", "0.2.0")
+
+# Setup the main toolchain
+c.toolchain(ccbin="clang", arbin="llvm-ar", asbin="llvm-as", ldbin="clang")
+
+
+# Get the clang include dir
+CLANG_INCLUDE_DIR = shell("clang --print-file-name=include", strip=True)
+
+# Set the cflags we use
+# TODO: proper multi-arch support
+
+c.cflags.add(
+    [
+        # Compile for x86-64
+        "-target",
+        "x86_64-pc-none-elf",
+        "-march=x86-64-v3",
+        # All the errors
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        # C23
+        "-std=gnu23",
+        # Only use the clang freestanding headers
+        "-nostdinc",
+        "-isystem",
+        CLANG_INCLUDE_DIR,
+        "-Iinclude",
+        "-Isrc",
+        # Easier debugging, regardless of level
+        "-g",
+        # All code is internal
+        "-fvisibility=hidden",
+        # static binary
+        "-static",  # TODO: static pie?
+        "-fno-common",
+        # memory model
+        "-fno-pic",  # TODO: pic so we can kaslr?
+        "-fno-plt",
+        "-mcmodel=kernel",
+        # Kernel compatible code gen
+        "-mgeneral-regs-only",
+        "-mno-red-zone",
+        "-ffreestanding",
+        "-fno-builtin",
+        # Align the stack to 8 bytes because no need for more in the kernel
+        "-mstack-alignment=8",
+        # Enable full CFI for kernel IBT
+        "-fcf-protection=branch",
+        "-fno-jump-tables",
+        # Strong stack protector
+        # "-fstack-protector-strong",
+        # Only allow C99 flexible arrays
+        "-fstrict-flex-arrays=3",
+        # To make the code less prone to mistakes
+        "-fno-strict-overflow",
+        "-fno-strict-aliasing",
+        # Standard sizes
+        "-fshort-wchar",
+        "-funsigned-char",
+        # We have no use for these tables
+        "-fno-unwind-tables",
+        "-fno-asynchronous-unwind-tables",
+    ]
+)
+
+c.ldflags.add(
+    [
+        # Use clang's ld
+        "-fuse-ld=lld",
+        # No libs
+        "-nostdlib",
+        # Make sure all errors are fatal
+        "-Wl,--fatal-warnings",
+        # Don't add the build id (useless)
+        "-Wl,--build-id=none",
+        # Add our linker script
+        "-Tsrc/linker.lds",
+    ]
+)
+
+# If we are compiled for debug
+if config("DEBUG") == "y":
+    # Debugging flags
+    c.cflags.add(
+        [
+            # Tell the code we are in debug
+            "-D__DEBUG__",
+            # Optimize for debugging
+            "-Og",
+            # Add frame pointers
+            "-fno-omit-frame-pointer",
+            "-fno-optimize-sibling-calls",
+            # Init all stack variables to a pattern
+            "-ftrivial-auto-var-init=pattern",
+        ]
+    )
+else:
+    # Optimization flags
+    c.cflags.add(
+        [
+            # Optimizations and full lto please
+            "-O3",
+            "-flto",
+            # Frame pointers are not needed
+            "-fomit-frame-pointer",
+            # Zero init all stack variables
+            "-ftrivial-auto-var-init=zero",
+        ]
+    )
+
+# The kernel itself
+c.binary(
+    name="kernel.elf",
+    implicit=[
+        Path("src/linker.lds"),
+    ],
+    # TODO: filter arch folders only to the target arch
+    sources=glob("**/*.c", Path("src")),
+)

@@ -1,0 +1,12 @@
+BasedOnStyle: LLVM
+AlignConsecutiveMacros: Consecutive
+AllowShortFunctionsOnASingleLine: None
+BreakAfterAttributes: Always
+Cpp11BracedListStyle: Block
+IndentCaseLabels: true
+IndentPPDirectives: BeforeHash
+IndentWidth: 4
+PointerAlignment: Left
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
