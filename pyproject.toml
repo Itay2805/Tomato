@@ -1,0 +1,8 @@
+[project]
+name = "tomato"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "bob-build>=0.1.8",
+    "bobstd>=0.2.3",
+]
