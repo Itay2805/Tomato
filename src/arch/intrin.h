@@ -42,6 +42,10 @@ static inline void irq_disable() {
     asm("cli");
 }
 
+static inline bool irq_enabled() {
+    return __builtin_ia32_readeflags_u64() & (1 << 9);
+}
+
 #else
     #error Unknown arch
 #endif
