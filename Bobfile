@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import bobstd.c as c
+from bob.core.context import Context
 from bob.prelude import *
 
 bob_required_version("0.1.0")
@@ -244,3 +245,46 @@ image = limine_image.build(
         "efi": limine_bootx64,
     },
 )
+
+
+################################################################################
+# Booting the image
+################################################################################
+
+# How qemu is invoked by the `qemu` target.
+QEMU_FLAGS = [
+    "-M",
+    "q35",
+    "--enable-kvm",
+    "-cpu",
+    "host",
+    "-m",
+    "512M",
+    "-debugcon",
+    "stdio",
+    "-display",
+    "none",
+    "-no-reboot",
+]
+
+# Boot the image under qemu.
+#
+# `always` keeps the target from ever being up to date, and the console pool
+# gives qemu the terminal rather than letting ninja buffer it up until exit.
+qemu_run = Rule(
+    "qemu-system-x86_64 $qemuflags -drive file=$image,format=raw,if=ide && touch $out",
+    description="QEMU",
+    always=True,
+    pool="console",
+    variables={
+        "qemuflags": QEMU_FLAGS,
+    },
+)
+
+qemu_stamp = qemu_run.build(
+    ".bob/qemu.stamp",
+    implicit=[image],
+    variables={"image": image},
+)
+
+phony("qemu", [qemu_stamp])
