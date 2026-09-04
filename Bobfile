@@ -8,6 +8,10 @@ from bob.prelude import *
 bob_required_version("0.1.0")
 bob_required_package_version("bobstd", "0.2.0")
 
+################################################################################
+# The kernel
+################################################################################
+
 # Setup the main toolchain
 c.toolchain(ccbin="clang", arbin="llvm-ar", asbin="llvm-as", ldbin="clang")
 
@@ -119,11 +123,124 @@ else:
     )
 
 # The kernel itself
-c.binary(
+kernel = c.binary(
     name="kernel.elf",
     implicit=[
         Path("src/linker.lds"),
     ],
     # TODO: filter arch folders only to the target arch
     sources=glob("**/*.c", Path("src")),
+)
+
+
+################################################################################
+# Fetch the limine bootloader
+################################################################################
+
+# The limine release to use, `latest` always grabs the newest one
+LIMINE_VERSION = config("LIMINE_VERSION", default="12.7.0")
+
+# The directory the release is unpacked into
+LIMINE_DIR = builddir() / "limine"
+
+# The prebuilt release archive, github serves `latest` from its own path
+LIMINE_URL = (
+    "https://github.com/limine-bootloader/limine/releases/"
+    + (
+        "latest/download"
+        if LIMINE_VERSION == "latest"
+        else f"download/v{LIMINE_VERSION}"
+    )
+    + "/limine-binary.tar.xz"
+)
+
+# Download the prebuilt release from github and unpack it
+limine_fetch = Rule(
+    "rm -rf $dir $dir.tar.xz"
+    " && mkdir -p $dir"
+    " && curl -sSfL -o $dir.tar.xz $url"
+    " && tar -xJf $dir.tar.xz -C $dir --strip-components=1"
+    " && rm -f $dir.tar.xz",
+    description="FETCH LIMINE",
+    single_output=False,
+    variables={
+        "url": LIMINE_URL,
+        "dir": LIMINE_DIR,
+    },
+)
+
+# We only care about the x86-64 pieces, the release also carries the other
+# architectures, the cd/pxe stages and the headers
+limine_source, limine_bios_sys, limine_bootx64 = limine_fetch.build(
+    "limine/limine.c",
+    "limine/limine-bios.sys",
+    "limine/BOOTX64.EFI",
+)
+
+# The only prebuilt deploy tool in the release is for windows, everywhere else
+# it has to be built from the limine.c that ships next to it.
+#
+# This is a host binary and not part of the kernel, so scope the toolchain back
+# to the host and replace the kernel flags with the ones from the Makefile that
+# ships alongside limine.c.
+with (
+    c.toolchain(ccbin=config("HOSTCC", default="cc"), arbin="ar"),
+    c.cflags.set(
+        [
+            "-std=c99",
+            "-D_FILE_OFFSET_BITS=64",
+            "-O2",
+        ]
+    ),
+    c.ldflags.set([]),
+):
+    limine_tool = c.binary(name="limine-tool", sources=[limine_source])
+
+
+################################################################################
+# The bootable image
+################################################################################
+
+# The size of the generated disk image
+IMAGE_SIZE = "64M"
+
+# The limine boot menu configuration
+LIMINE_CONF = Path("limine.conf")
+
+# Build a disk image that boots on both BIOS and UEFI.
+#
+# The table is laid out as GPT and then converted to MBR (sgdisk `-m`), which
+# is what limine wants on x86-64: plenty of BIOS/CSM implementations refuse to
+# boot off of GPT, while UEFI is happy to take an ESP on an MBR disk. The BIOS
+# stages then go into the MBR and the gap in front of the partition, and the
+# UEFI executables into the ESP, so the same image boots either way.
+#
+# Everything is done with mtools so that no loop device or root is needed.
+limine_image = Rule(
+    "rm -f $out"
+    " && truncate -s $size $out"
+    " && PATH=$$PATH:/usr/sbin:/sbin sgdisk $out -n 1:2048 -t 1:ef00 -m 1 > /dev/null"
+    " && $limine bios-install --quiet $out"
+    " && mformat -i $out@@1M"
+    " && mmd -i $out@@1M ::/EFI ::/EFI/BOOT ::/boot ::/boot/limine"
+    " && mcopy -i $out@@1M $kernel ::/boot"
+    " && mcopy -i $out@@1M $conf $biossys ::/boot/limine"
+    " && mcopy -i $out@@1M $efi ::/EFI/BOOT",
+    description="IMAGE",
+    variables={
+        "size": IMAGE_SIZE,
+    },
+)
+
+image = limine_image.build(
+    "tomato.hdd",
+    inputs=[kernel, LIMINE_CONF, limine_bios_sys, limine_bootx64],
+    implicit=[limine_tool],
+    variables={
+        "limine": limine_tool,
+        "kernel": kernel,
+        "conf": LIMINE_CONF,
+        "biossys": limine_bios_sys,
+        "efi": limine_bootx64,
+    },
 )
