@@ -1,3 +1,4 @@
+#include "boot/virt.h"
 #include "lib/assert.h"
 #include "lib/trace.h"
 #include "limine.h"
@@ -55,6 +56,10 @@ void _start(void) {
     TRACE("Tomato!");
 #endif
     bootloader_sanity();
+
+    // early setup, this leaves us with our own
+    // page tables so we can continue
+    early_virt_init();
 
     TRACE("DONE!");
 

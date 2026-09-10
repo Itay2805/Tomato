@@ -14,6 +14,8 @@
         }                                                                                          \
     } while (0)
 
+#define ASSERT_SUCCESS(expr, ...) ASSERT(!IS_ERROR(expr), ##__VA_ARGS__)
+
 #ifdef __DEBUG__
     #define DEBUG_ASSERT ASSERT
 #else
