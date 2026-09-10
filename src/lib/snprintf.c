@@ -4,109 +4,219 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef struct buf {
-    char* buf;
-    size_t size;
+static size_t strlen(const char* str) {
     size_t len;
-} buf_t;
-
-static void buf_put(buf_t* o, char c) {
-    if (o->len + 1 < o->size) {
-        o->buf[o->len] = c;
-    }
-    o->len++;
+    for (len = 0; str[len]; len++)
+        ;
+    return len;
 }
 
-static void buf_puts(buf_t* o, const char* s) {
-    while (*s) {
-        buf_put(o, *s++);
-    }
-}
+static int u64toa_r(uint64_t in, char* buffer) {
+    int digits = 0;
 
-static void buf_putnum(buf_t* o, uint64_t v, unsigned base) {
-    char tmp[20];
-    char* p = tmp + sizeof(tmp);
-
+    int pos = 19;
     do {
-        *--p = "0123456789abcdef"[v % base];
-        v /= base;
-    } while (v);
+        int dig = 0;
+        unsigned long long lim = 0;
+        for (dig = 0, lim = 1; dig < pos; dig++) {
+            lim *= 10;
+        }
 
-    while (p < tmp + sizeof(tmp)) {
-        buf_put(o, *p++);
-    }
+        if (digits || in >= lim || !pos) {
+            for (dig = 0; in >= lim; dig++) {
+                in -= lim;
+            }
+
+            buffer[digits++] = '0' + dig;
+        }
+    } while (pos--);
+
+    buffer[digits] = 0;
+    return digits;
 }
 
-int kvsnprintf(char* buffer, size_t size, const char* format, va_list args) {
-    buf_t o = { buffer, size, 0 };
+static int i64toa_r(int64_t in, char* buffer) {
+    char* ptr = buffer;
+    int len = 0;
 
-    for (; *format; format++) {
-        if (*format != '%') {
-            buf_put(&o, *format);
+    if (in < 0) {
+        in = -(uint64_t)in;
+        *(ptr++) = '-';
+        len++;
+    }
+    len += u64toa_r(in, ptr);
+    return len;
+}
+
+static int u64toh_r(uint64_t in, char* buffer) {
+    signed char pos = 60;
+
+    int digits = 0;
+    do {
+        int dig = (in >> pos) & 0xF;
+        if (dig > 9)
+            dig += 'a' - '0' - 10;
+        pos -= 4;
+        if (dig || digits || pos < 0) {
+            buffer[digits++] = '0' + dig;
+        }
+    } while (pos >= 0);
+
+    buffer[digits] = 0;
+    return digits;
+}
+
+void kvsnprintf(char* out, size_t n, const char* fmt, va_list args) {
+    size_t size = n;
+    char* buf = out;
+
+    char c;
+    unsigned long long v;
+    size_t len;
+    char tmpbuf[21];
+    const char* outstr;
+
+    size_t offset = 0;
+    size_t lpref = 0;
+    int written = 0;
+    bool escape = false;
+
+    while (1) {
+        size_t width = 0;
+        char pad = ' ';
+
+        c = fmt[offset++];
+
+        if (escape) {
+            // we're in an escape sequence, offset == 1
+            escape = false;
+
+            // pad with zero instead of space
+            if (c == '0') {
+                pad = '0';
+                c = fmt[offset++];
+            }
+
+            // width
+            while (c >= '0' && c <= '9') {
+                width *= 10;
+                width += c - '0';
+
+                c = fmt[offset++];
+            }
+
+            // modifiers or final 0
+            while (c == 'l') {
+                lpref++;
+                c = fmt[offset++];
+            }
+
+            if (c == 'c' || c == 'd' || c == 'u' || c == 'x' || c == 'p') {
+                char* out = tmpbuf;
+
+                if (c == 'p') {
+                    v = va_arg(args, unsigned long);
+                } else if (lpref) {
+                    if (lpref > 1) {
+                        v = va_arg(args, unsigned long long);
+                    } else {
+                        v = va_arg(args, unsigned long);
+                    }
+                } else {
+                    v = va_arg(args, unsigned int);
+                }
+
+                if (c == 'd') {
+                    // sign-extend the value
+                    if (lpref == 0) {
+                        v = (long long)(int)v;
+                    } else if (lpref == 1) {
+                        v = (long long)(long)v;
+                    }
+                }
+
+                switch (c) {
+                    case 'c':
+                        out[0] = v;
+                        out[1] = 0;
+                        break;
+                    case 'd':
+                        i64toa_r(v, out);
+                        break;
+                    case 'u':
+                        u64toa_r(v, out);
+                        break;
+                    case 'p':
+                        *(out++) = '0';
+                        *(out++) = 'x';
+                    default: // 'x' and 'p' above
+                        u64toh_r(v, out);
+                        break;
+                }
+                outstr = tmpbuf;
+
+            } else if (c == 's') {
+                outstr = va_arg(args, char*);
+                if (outstr == nullptr) {
+                    outstr = "(null)";
+                }
+
+            } else if (c == '%') {
+                // queue it verbatim
+                continue;
+
+            } else {
+                escape = true;
+                goto do_escape;
+            }
+
+            len = strlen(outstr);
+            goto flush_str;
+        }
+
+        // not an escape sequence
+        if (c == 0 || c == '%') {
+            // flush pending data on escape or end
+            escape = true;
+            lpref = 0;
+            outstr = fmt;
+            len = offset - 1;
+
+        flush_str:
+            if (n) {
+                size_t w = len < n ? len : n;
+                n -= w;
+
+                while (width-- > w) {
+                    *out++ = pad;
+                    written += 1;
+                }
+
+                memcpy(out, outstr, w);
+                out += w;
+            }
+
+            written += len;
+
+        do_escape:
+            if (c == 0)
+                break;
+
+            fmt += offset;
+            offset = 0;
             continue;
         }
 
-        int wide = 0;
-        while (format[1] == 'l' || format[1] == 'z') {
-            wide = 1;
-            format++;
-        }
-
-        switch (*++format) {
-            case 'c': {
-                buf_put(&o, (char)va_arg(args, int));
-            } break;
-
-            case 's': {
-                const char* s = va_arg(args, const char*);
-                buf_puts(&o, s ? s : "(null)");
-            } break;
-
-            case 'd': {
-                int64_t v = wide ? va_arg(args, int64_t) : va_arg(args, int);
-                uint64_t u = (uint64_t)v;
-                if (v < 0) {
-                    buf_put(&o, '-');
-                    u = -u; /* unsigned negate: INT64_MIN is fine */
-                }
-                buf_putnum(&o, u, 10);
-            } break;
-
-            case 'u': {
-                buf_putnum(&o, wide ? va_arg(args, uint64_t) : va_arg(args, unsigned), 10);
-            } break;
-
-            case 'x': {
-                buf_putnum(&o, wide ? va_arg(args, uint64_t) : va_arg(args, unsigned), 16);
-            } break;
-
-            case '%': {
-                buf_put(&o, '%');
-            } break;
-
-            case '\0':
-                goto done;
-
-            default:
-                buf_put(&o, '%');
-                buf_put(&o, *format);
-                break;
-        }
+        // literal char, just queue it
     }
 
-done:
-    // ensure it ends with null terminator
-    if (size) {
-        buffer[o.len < size ? o.len : size - 1] = '\0';
-    }
-
-    return (int)o.len;
+    // ensure it always ends with a null terminator
+    buf[(size_t)written < size ? (size_t)written : size - 1] = '\0';
 }
 
-int ksnprintf(char* buffer, size_t size, const char* format, ...) {
+void ksnprintf(char* buffer, size_t size, const char* format, ...) {
     va_list args;
     va_start(args, format);
-    int result = kvsnprintf(buffer, size, format, args);
+    kvsnprintf(buffer, size, format, args);
     va_end(args);
-    return result;
 }

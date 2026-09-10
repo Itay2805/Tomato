@@ -255,6 +255,7 @@ image = limine_image.build(
 QEMU_FLAGS = [
     "-M",
     "q35",
+    "-s",
     "--enable-kvm",
     "-cpu",
     "host",
@@ -262,9 +263,12 @@ QEMU_FLAGS = [
     "512M",
     "-debugcon",
     "stdio",
+    "-monitor",
+    "tcp:127.0.0.1:55555,server,nowait",
     "-display",
     "none",
     "-no-reboot",
+    "-no-shutdown",
 ]
 
 # Boot the image under qemu.

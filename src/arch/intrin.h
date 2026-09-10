@@ -2,8 +2,7 @@
 
 #include <stdint.h>
 
-#ifdef __x86_64__
-    #include <x86intrin.h>
+#include <x86intrin.h>
 
 static inline uint8_t __inbyte(uint16_t port) {
     uint8_t byte;
@@ -45,7 +44,3 @@ static inline void irq_disable() {
 static inline bool irq_enabled() {
     return __builtin_ia32_readeflags_u64() & (1 << 9);
 }
-
-#else
-    #error Unknown arch
-#endif

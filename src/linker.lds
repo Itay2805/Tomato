@@ -24,18 +24,23 @@ SECTIONS
     } :limine_requests
 
     . = ALIGN(CONSTANT(MAXPAGESIZE));
+    __text_start = .;
 
     .text : {
         *(.text .text.*)
     } :text
 
     . = ALIGN(CONSTANT(MAXPAGESIZE));
+    __text_page_count = (. - __text_start) / CONSTANT(MAXPAGESIZE);
+    __rodata_start = .;
 
     .rodata : {
         *(.rodata .rodata.*)
     } :rodata
 
     . = ALIGN(CONSTANT(MAXPAGESIZE));
+    __rodata_page_count = (. - __rodata_start) / CONSTANT(MAXPAGESIZE);
+    __data_start = .;
 
     .data : {
         *(.data .data.*)
@@ -45,6 +50,9 @@ SECTIONS
         *(.bss .bss.*)
         *(COMMON)
     }
+
+    . = ALIGN(CONSTANT(MAXPAGESIZE));
+    __data_page_count = (. - __data_start) / CONSTANT(MAXPAGESIZE);
 
     /DISCARD/ : {
         *(.eh_frame*)

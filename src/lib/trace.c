@@ -5,7 +5,7 @@
 
 static irq_spinlock_t m_trace_lock = INIT_IRQ_SPINLOCK;
 
-void trace(const char* fmt, ...) {
+void _trace(const char* fmt, ...) {
     // format it on the stack for fun and profit
     char buffer[512];
     va_list ap;
@@ -17,7 +17,15 @@ void trace(const char* fmt, ...) {
     irq_state_t state = irq_spinlock_acquire(&m_trace_lock);
     char* p = buffer;
     while (*p) {
-        __outbyte(0xE9, *p++);
+        if (*p == '\t') {
+            __outbyte(0xE9, ' ');
+            __outbyte(0xE9, ' ');
+            __outbyte(0xE9, ' ');
+            __outbyte(0xE9, ' ');
+        } else {
+            __outbyte(0xE9, *p);
+        }
+        p++;
     }
     irq_spinlock_release(&m_trace_lock, state);
 }

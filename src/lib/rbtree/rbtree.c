@@ -9,9 +9,9 @@
   linux/lib/rbtree.c
 */
 
-#include "lib/defs.h"
 #include "rbtree_augmented.h"
 #include "rbtree_types.h"
+#include "util/defs.h"
 
 /*
  * red-black trees properties:  https://en.wikipedia.org/wiki/Rbtree

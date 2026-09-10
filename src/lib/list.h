@@ -1,16 +1,19 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 #pragma once
 
+#include "util/defs.h"
+
 #define LIST_POISON1 ((void*)0x100)
 #define LIST_POISON2 ((void*)0x122)
 
-#include "lib/defs.h"
 typedef struct list_entry {
     struct list_entry* next;
     struct list_entry* prev;
 } list_entry_t;
 
 typedef list_entry_t list_t;
+
+#define LIST_INIT(name) { &(name), &(name) }
 
 [[gnu::cold, noreturn]]
 void __list_add_valid_or_report(list_entry_t* new, list_entry_t* prev, list_entry_t* next);

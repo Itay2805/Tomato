@@ -1,3 +1,4 @@
+#include "boot/virt.h"
 #include "lib/assert.h"
 #include "lib/trace.h"
 #include "limine.h"
@@ -26,6 +27,11 @@ static volatile struct limine_bootloader_info_request g_bootloader_info_request 
     .id = LIMINE_BOOTLOADER_INFO_REQUEST_ID, .revision = 0, .response = nullptr
 };
 
+[[gnu::section(".limine_requests")]]
+volatile struct limine_memmap_request g_memmap_request = { .id = LIMINE_MEMMAP_REQUEST_ID,
+                                                           .revision = 0,
+                                                           .response = nullptr };
+
 /////////////////////////////////////////////////////////////////////////
 // The kernel entry point
 /////////////////////////////////////////////////////////////////////////
@@ -49,6 +55,11 @@ static void bootloader_sanity() {
 void _start() {
     TRACE("Tomato!");
     bootloader_sanity();
+
+    // setup our own page tables
+    init_early_virt();
+
+    TRACE("LOADED");
 
     for (;;)
         asm("hlt");

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "cpp_magic.h"
-#include "defs.h"
 #include "trace.h"
+#include "util/defs.h"
 
 #define ASSERT(expr, ...)                                                                          \
     do {                                                                                           \
@@ -13,3 +13,9 @@
                 ;                                                                                  \
         }                                                                                          \
     } while (0)
+
+#ifdef __DEBUG__
+    #define DEBUG_ASSERT ASSERT
+#else
+    #define DEBUG_ASSERT(...)
+#endif
