@@ -7,10 +7,17 @@
 #include "lib/rbtree/rbtree_types.h"
 #include "lib/string.h"
 #include "lib/trace.h"
+#include "sync/rwlock.h"
 #include "tomato/err.h"
 #include "util/except.h"
 #include <stddef.h>
 #include <stdint.h>
+
+/**
+ * An RWLock protecting all VMAR modifications
+ * TODO: maybe only have a per address-space lock instead?
+ */
+static rwlock_t m_vmar_lock = {};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Helpers
@@ -127,6 +134,14 @@ static int vmar_overlap_cmp(rb_node_t* new, const rb_node_t* exist) {
     return vmar_compare_ranges(vmar_of_rb(new), vmar_of_rb(exist));
 }
 
+/**
+ * Same ordering, but keyed by a vmar that is not in the tree, so we
+ * can look for an overlap without inserting anything
+ */
+static int vmar_overlap_find_cmp(const void* key, const rb_node_t* exist) {
+    return vmar_compare_ranges(key, vmar_of_rb(exist));
+}
+
 static err_t vmar_check_in_parent(vmar_t* parent, vmar_t* child) {
     size_t end;
     CHECK(!__builtin_add_overflow(vmar_first_page(child), child->page_count, &end));
@@ -158,8 +173,91 @@ static void vmar_link_internal(vmar_t* parent, vmar_t* child) {
 }
 
 void vmar_link(vmar_t* parent, vmar_t* child) {
+    rwlock_exclusive_guard(&m_vmar_lock);
     ASSERT_SUCCESS(vmar_check_in_parent(parent, child));
     vmar_link_internal(parent, child);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Allocation
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * The first-fit search wants the lowest child with a big enough gap before
+ * it, the max gap of each subtree tells it which subtrees to skip
+ */
+static bool vmar_gap_fits(const void* key, const rb_node_t* rb) {
+    return vmar_of_rb(rb)->gap >= *(const size_t*)key;
+}
+
+static bool vmar_max_gap_fits(const void* key, const rb_node_t* rb) {
+    return vmar_of_rb(rb)->max_gap >= *(const size_t*)key;
+}
+
+static bool vmar_find_gap(vmar_t* parent, size_t page_count, size_t* out_page) {
+    rb_root_t* root = &parent->region.children.rb_root;
+
+    // the lowest child with a big enough gap before it
+    rb_node_t* rb = rb_find_first_fit(&page_count, root, vmar_gap_fits, vmar_max_gap_fits);
+    if (rb != nullptr) {
+        vmar_t* vmar = vmar_of_rb(rb);
+        *out_page = vmar_first_page(vmar) - vmar->gap;
+        return true;
+    }
+
+    // otherwise it may fit after the last child
+    size_t gap_start;
+    if (vmar_tail_gap(parent, &gap_start) >= page_count) {
+        *out_page = gap_start;
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * Search for a place in a gap to put the vmar, returns null if can't find one
+ *
+ * Assumes we are holding the vmar lock
+ */
+static err_t vmar_find_place(vmar_t* parent, vmar_t* child, uintptr_t offset, size_t page_count) {
+    child->page_count = page_count;
+
+    if (offset == VMAR_ANY_OFFSET) {
+        // first fit, the lowest gap that can hold the child
+        size_t page;
+        CHECK(vmar_find_gap(parent, page_count, &page));
+        child->base = (void*)(page << PAGE_SHIFT);
+
+    } else {
+        // ensure the offset is page aligned
+        CHECK(((uintptr_t)offset & PAGE_MASK) == 0);
+
+        // at a fixed offset from the start of the parent, linking
+        // will verify the range is actually inside of it
+        uintptr_t base;
+        CHECK(!__builtin_add_overflow((uintptr_t)parent->base, offset, &base));
+        child->base = (void*)base;
+
+        // ensure its within the parent
+        RETHROW(vmar_check_in_parent(parent, child));
+
+        // make sure it does not overlap any of the existing children
+        CHECK(rb_find(child, &parent->region.children.rb_root, vmar_overlap_find_cmp) == nullptr);
+    }
+
+    return SUCCESS;
+}
+
+err_t vmar_allocate_static(vmar_t* parent, vmar_t* child, uintptr_t offset, size_t page_count) {
+    CHECK_ARG(parent->kind == VMAR_KIND_REGION);
+    CHECK_ARG(page_count != 0);
+
+    rwlock_exclusive_guard(&m_vmar_lock);
+    RETHROW(vmar_find_place(parent, child, offset, page_count));
+    vmar_link_internal(parent, child);
+
+    return SUCCESS;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -274,6 +372,8 @@ static void vmar_dump_children(vmar_t* vmar, char* prefix, size_t prefix_len) {
 }
 
 void vmar_dump(vmar_t* root) {
+    rwlock_shared_guard(&m_vmar_lock);
+
     char prefix[DUMP_PREFIX_SIZE] = "";
     vmar_dump_line(root, prefix, "");
     vmar_dump_children(root, prefix, 0);

@@ -7,6 +7,7 @@
 #include "lib/trace.h"
 #include "limine.h"
 #include "mem/mapping.h"
+#include "mem/phys.h"
 #include "mem/vmar.h"
 #include "util/defs.h"
 
@@ -216,6 +217,73 @@ static void early_map_direct_map(void) {
     }
 }
 
+static void early_create_buddy_bitmap(void) {
+    // the bitmap has a bit per min sized block, and the buddy of a block is always
+    // within the same max sized block, so cover up to the end of the last max sized block
+    uintptr_t top = ALIGN_UP(g_direct_map.page_count * PAGE_SIZE, PHYS_BUDDY_MAX_SIZE);
+    size_t bitmap_page_count =
+        DIV_ROUND_UP(DIV_ROUND_UP(top >> PHYS_BUDDY_MIN_ORDER, 8), PAGE_SIZE);
+    ASSERT_SUCCESS(vmar_allocate_static(&g_kernel_region, &g_buddy_bitmap_mapping, VMAR_ANY_OFFSET,
+                                        bitmap_page_count));
+
+    struct limine_memmap_response* response = m_memmap_request.response;
+    for (size_t i = 0; i < response->entry_count; i++) {
+        struct limine_memmap_entry* entry = response->entries[i];
+        if (entry->type != LIMINE_MEMMAP_USABLE &&
+            entry->type != LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE) {
+            continue;
+        }
+
+        // calculate the bitmap range that we need to allocate, we cover entire max sized
+        // blocks so merging with a buddy outside the entry never touches an unmapped page
+        uintptr_t start = ALIGN_DOWN(entry->base, PHYS_BUDDY_MAX_SIZE);
+        uintptr_t end = ALIGN_UP(entry->base + entry->length, PHYS_BUDDY_MAX_SIZE);
+        size_t bitmap_start = ALIGN_DOWN((start >> PHYS_BUDDY_MIN_ORDER) / 8, PAGE_SIZE);
+        size_t bitmap_end = ALIGN_UP(DIV_ROUND_UP(end >> PHYS_BUDDY_MIN_ORDER, 8), PAGE_SIZE);
+
+        // map the entire bitmap right now
+        void* bitmap_ptr = g_buddy_bitmap_mapping.base + bitmap_start;
+        void* bitmap_end_ptr = g_buddy_bitmap_mapping.base + bitmap_end;
+        for (; bitmap_ptr < bitmap_end_ptr; bitmap_ptr += PAGE_SIZE) {
+            uint64_t* pte = early_virt_get_pte(bitmap_ptr);
+            if (*pte & IA32_PG_P) {
+                continue;
+            }
+
+            // allocate and map the page, we mark it as RW, global (it never gets unmapped)
+            // and as both dirty and accessed because we don't care for that information
+            uint64_t entry = direct_to_phys(early_phys_alloc_page());
+            entry |= IA32_PG_P | IA32_PG_RW | IA32_PG_NX;
+            entry |= IA32_PG_G;
+            entry |= IA32_PG_D | IA32_PG_A;
+            *pte = entry;
+        }
+    }
+}
+
+static void early_phys_add_memory(void) {
+    struct limine_memmap_response* response = m_memmap_request.response;
+    for (size_t i = 0; i < response->entry_count; i++) {
+        struct limine_memmap_entry* entry = response->entries[i];
+        if (entry->type != LIMINE_MEMMAP_USABLE) {
+            continue;
+        }
+
+        uintptr_t base = entry->base;
+        uintptr_t end = base + entry->length;
+
+        if (end < m_early_alloc_top) {
+            continue;
+        }
+
+        if (base < m_early_alloc_top) {
+            base = m_early_alloc_top;
+        }
+
+        phys_add_memory(phys_to_direct(base), phys_to_direct(end));
+    }
+}
+
 void early_virt_init(void) {
     // initialize the basic regions
     m_page_table_levels = init_kernel_region();
@@ -239,4 +307,10 @@ void early_virt_init(void) {
     vmar_link(&g_kernel_region, &g_kernel_text_mapping);
     vmar_link(&g_kernel_region, &g_kernel_rodata_mapping);
     vmar_link(&g_kernel_region, &g_kernel_data_mapping);
+
+    // now initialize the buddy allocator bitmap
+    // and add all physical memory to it
+    // yes this is technically not part of virt init but its close enough
+    early_create_buddy_bitmap();
+    early_phys_add_memory();
 }

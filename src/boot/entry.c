@@ -57,8 +57,9 @@ void _start(void) {
 #endif
     bootloader_sanity();
 
-    // early setup, this leaves us with our own
-    // page tables so we can continue
+    // early setup, this leaves us with our own page
+    // tables and a working physical memory allocator
+    // so we can continue
     early_virt_init();
 
     TRACE("DONE!");

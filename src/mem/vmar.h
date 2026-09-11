@@ -88,6 +88,8 @@ typedef enum vm_perm {
     VM_PERM_RX,
 } vm_perm_t;
 
+#define VMAR_ANY_OFFSET ((uintptr_t)-1)
+
 /**
  * Given a filled VMAR (base and page count are set), link it
  * to the parent.
@@ -98,6 +100,14 @@ typedef enum vm_perm {
  * This function will panic if we fail to place it inside of the tree
  */
 void vmar_link(vmar_t* parent, vmar_t* child);
+
+/**
+ * Place the child in the parent and link it.
+ *
+ * The offset is relative to the start of the parent, if it is VMAR_ANY_OFFSET
+ * the child is placed in the lowest gap that can hold it (first-fit).
+ */
+err_t vmar_allocate_static(vmar_t* parent, vmar_t* child, uintptr_t offset, size_t page_count);
 
 /**
  * Dump the VMAR tree

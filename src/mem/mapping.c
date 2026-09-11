@@ -17,6 +17,11 @@ vmar_t g_direct_map = {
     .kind = VMAR_KIND_SPECIAL,
 };
 
+vmar_t g_buddy_bitmap_mapping = {
+    .name = "buddy-bitmap",
+    .kind = VMAR_KIND_SPECIAL,
+};
+
 #define KERNEL_REGION(_name)                                                                       \
     extern char __##_name##_start[];                                                               \
     extern char __##_name##_page_count[];                                                          \

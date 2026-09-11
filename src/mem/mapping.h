@@ -8,8 +8,9 @@
 // The higher half region
 extern vmar_t g_kernel_region;
 
-// The direct map
+// The direct map + buddy allocator bitmap
 extern vmar_t g_direct_map;
+extern vmar_t g_buddy_bitmap_mapping;
 
 // The kernel sections
 extern vmar_t g_kernel_limine_requests_mapping;
