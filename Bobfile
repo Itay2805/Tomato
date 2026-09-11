@@ -33,8 +33,9 @@ c.cflags.add(
         "-Wall",
         "-Wextra",
         "-Werror",
-        # C23
+        # C23 + defer extension
         "-std=gnu23",
+        "-fdefer-ts",
         # Only use the clang freestanding headers
         "-nostdinc",
         "-isystem",

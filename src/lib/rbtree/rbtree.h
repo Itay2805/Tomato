@@ -24,7 +24,7 @@
 
 #define rb_entry(ptr, type, member) container_of(ptr, type, member)
 
-#define RB_EMPTY_ROOT(root) (READ_ONCE((root)->rb_node) == nullptr)
+#define RB_EMPTY_ROOT(root) ((root)->rb_node == nullptr)
 
 /* 'empty' nodes are nodes that are known not to be inserted in an rbtree */
 #define RB_EMPTY_NODE(node) ((node)->__rb_parent_color == (unsigned long)(node))
@@ -214,6 +214,24 @@ static inline void __rb_add(rb_node_t* node, rb_root_t* tree,
 }
 
 #define __node_2_linked_node(_n) rb_entry((_n), rb_node_linked_t, node)
+
+/* Same as rb_first(), but O(1) */
+#define rb_first_linked(root) (root)->rb_leftmost
+
+/*
+ * Take a node out of the ordered links of a linked tree,
+ * without touching the tree itself.
+ */
+[[clang::always_inline]]
+static inline void __rb_unlink_linked_node(rb_node_linked_t* node, rb_root_linked_t* root) {
+    if (node->prev)
+        node->prev->next = node->next;
+    else
+        root->rb_leftmost = node->next;
+
+    if (node->next)
+        node->next->prev = node->prev;
+}
 
 static inline void rb_link_linked_node(rb_node_t* node, rb_node_t* parent, rb_node_t** link) {
     if (!parent)

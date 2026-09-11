@@ -1,7 +1,6 @@
 #pragma once
 
 #include "arch/virt.h"
-#include "lib/list.h"
 #include "lib/rbtree/rbtree.h"
 #include "lib/rbtree/rbtree_types.h"
 #include "util/except.h"
@@ -29,13 +28,7 @@ typedef struct vmar {
      * Node in the children tree of the parent,
      * allows for efficient lookup for address in the vmar
      */
-    rb_node_t node;
-
-    /**
-     * Entry in the ordered linked list of children
-     * Allows for efficient iteration over the children
-     */
-    list_entry_t entry;
+    rb_node_linked_t node;
 
     /**
      * The base address and count of the vmar
@@ -55,6 +48,18 @@ typedef struct vmar {
     char* name;
 
     /**
+     * The gap, in pages, between this vmar and the sibling before
+     * it (or the start of the parent if it is the first one)
+     */
+    size_t gap;
+
+    /**
+     * The max gap of any node in the subtree rooted at this node,
+     * allows for efficient first-fit allocation
+     */
+    size_t max_gap;
+
+    /**
      * The kind of the region
      */
     vmar_kind_t kind;
@@ -62,14 +67,9 @@ typedef struct vmar {
     union {
         struct {
             /**
-             * The children of the region, as a tree
+             * The children of the region
              */
-            rb_root_t children_tree;
-
-            /**
-             * The children of the region, as a list
-             */
-            list_t children_list;
+            rb_root_linked_t children;
         } region;
     };
 } vmar_t;
@@ -88,18 +88,30 @@ typedef enum vm_perm {
     VM_PERM_RX,
 } vm_perm_t;
 
-#define VMAR_ANY_OFFSET ((void*)-1)
+#define VMAR_ANY_OFFSET ((uintptr_t)-1)
 
 /**
- * Given a filled VMAR (base and page count are set), link it to the parent.
+ * Given a filled VMAR (base and page count are set), link it
+ * to the parent.
  *
- * The child must be fully contained in the parent and must not overlap
- * any of the children already linked to the parent.
- *
- * Returns the base of the child on success, nullptr if the child could not
- * be placed (invalid range, outside of the parent, or overlapping a sibling).
+ * The child must be page aligned, fully contained in the parent and
+ * must not overlap any of the children already linked to the parent.
  */
-err_t vmar_link(vmar_t* parent_vmar, vmar_t* child_vmar);
+err_t vmar_link(vmar_t* parent, vmar_t* child);
+
+/**
+ * Unlink a VMAR from its parent, the VMAR itself is left intact
+ * so it can be linked again (children included).
+ */
+err_t vmar_unlink(vmar_t* child);
+
+/**
+ * Place the child in the parent and link it.
+ *
+ * The offset is relative to the start of the parent, if it is VMAR_ANY_OFFSET
+ * the child is placed in the lowest gap that can hold it (first-fit).
+ */
+err_t vmar_allocate_static(vmar_t* parent, vmar_t* child, uintptr_t offset, size_t page_count);
 
 /**
  * Dump the VMAR tree

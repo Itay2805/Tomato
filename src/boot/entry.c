@@ -1,4 +1,4 @@
-#include "boot/virt.h"
+#include "boot/mem.h"
 #include "lib/assert.h"
 #include "lib/trace.h"
 #include "limine.h"
@@ -56,8 +56,10 @@ void _start() {
     TRACE("Tomato!");
     bootloader_sanity();
 
-    // setup our own page tables
-    init_early_virt();
+    // early setup, this leaves us with our own page
+    // tables and a working physical memory allocator
+    // so we can continue
+    init_early_mem();
 
     TRACE("LOADED");
 

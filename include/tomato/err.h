@@ -8,4 +8,5 @@ typedef enum tomato_err : uint32_t {
     TOMATO_ERROR_INVALID_ARGUMENT,
     TOMATO_ERROR_OUT_OF_RANGE,
     TOMATO_ERROR_OVERLAPS,
+    TOMATO_ERROR_OUT_OF_RESOURCES,
 } tomato_err_t;

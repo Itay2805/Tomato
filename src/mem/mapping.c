@@ -8,8 +8,7 @@ vmar_t g_kernel_region = {
     .name = "kernel",
     .kind = VMAR_KIND_REGION,
     .region = {
-        .children_tree = RB_ROOT,
-        .children_list = LIST_INIT(g_kernel_region.region.children_list),
+        .children = RB_ROOT_LINKED,
     },
 };
 
@@ -41,8 +40,7 @@ vmar_t g_user_region = {
     .name = "user",
     .kind = VMAR_KIND_REGION,
     .region = {
-        .children_tree = RB_ROOT,
-        .children_list = LIST_INIT(g_kernel_region.region.children_list),
+        .children = RB_ROOT_LINKED,
     },
 };
 

@@ -433,14 +433,7 @@ void rb_erase(rb_node_t* node, rb_root_t* root) {
 }
 
 bool rb_erase_linked(rb_node_linked_t* node, rb_root_linked_t* root) {
-    if (node->prev)
-        node->prev->next = node->next;
-    else
-        root->rb_leftmost = node->next;
-
-    if (node->next)
-        node->next->prev = node->prev;
-
+    __rb_unlink_linked_node(node, root);
     rb_erase(&node->node, &root->rb_root);
     RB_CLEAR_LINKED_NODE(node);
 

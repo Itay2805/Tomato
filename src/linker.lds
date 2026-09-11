@@ -12,6 +12,7 @@ PHDRS
 SECTIONS
 {
     . = 0xffffffff80000000;
+    __text_start = .;
 
     /*
      * Define a section to contain the Limine requests and assign
@@ -24,7 +25,6 @@ SECTIONS
     } :limine_requests
 
     . = ALIGN(CONSTANT(MAXPAGESIZE));
-    __text_start = .;
 
     .text : {
         *(.text .text.*)

@@ -1,4 +1,4 @@
-#include "virt.h"
+#include "mem.h"
 #include "arch/virt.h"
 #include "boot/alloc.h"
 #include "entry.h"
@@ -7,8 +7,10 @@
 #include "lib/trace.h"
 #include "limine.h"
 #include "mem/mapping.h"
+#include "mem/phys.h"
 #include "mem/vmar.h"
 #include "util/defs.h"
+
 #include <stdint.h>
 
 [[gnu::section(".limine_requests")]]
@@ -65,11 +67,12 @@ static void init_direct_map() {
 
     // find the top most address that we need to store in kernel
     uintptr_t top_address = 0;
-    for (size_t i = 0; i < g_memmap_request.response->entry_count; i++) {
+    for (int64_t i = g_memmap_request.response->entry_count - 1; i >= 0; i--) {
         struct limine_memmap_entry* entry = g_memmap_request.response->entries[i];
         if (entry->type == LIMINE_MEMMAP_USABLE ||
             entry->type == LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE) {
             top_address = entry->base + entry->length;
+            break;
         }
     }
 
@@ -111,50 +114,11 @@ static uint64_t* early_virt_get_pte(uint64_t* table, int levels, void* virt) {
 }
 
 static void early_virt_map(uint64_t* table, int levels, void* virt, uint64_t phys, size_t num_pages,
-                           vm_perm_t perms) {
+                           uint64_t flags) {
     for (; num_pages != 0; num_pages--, virt += PAGE_SIZE, phys += PAGE_SIZE) {
         uint64_t* pte = early_virt_get_pte(table, levels, virt);
         ASSERT(*pte == 0);
-
-        uint64_t entry = phys | IA32_PG_P | IA32_PG_A;
-
-        if (perms != VM_PERM_RX)
-            entry |= IA32_PG_NX;
-
-        if (perms == VM_PERM_RW)
-            entry |= IA32_PG_RW | IA32_PG_D;
-
-        *pte = entry;
-    }
-}
-
-static const char* const g_memmap_type_strs[] = {
-    [LIMINE_MEMMAP_USABLE] = "Usable",
-    [LIMINE_MEMMAP_RESERVED] = "Reserved",
-    [LIMINE_MEMMAP_ACPI_RECLAIMABLE] = "ACPI Reclaimable",
-    [LIMINE_MEMMAP_ACPI_NVS] = "ACPI NVS",
-    [LIMINE_MEMMAP_BAD_MEMORY] = "Bad Memory",
-    [LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE] = "Bootloader Reclaimable",
-    [LIMINE_MEMMAP_EXECUTABLE_AND_MODULES] = "Executable and Modules",
-    [LIMINE_MEMMAP_FRAMEBUFFER] = "Framebuffer",
-    [LIMINE_MEMMAP_RESERVED_MAPPED] = "Reserved (Mapped)",
-};
-
-static void create_direct_map(void* table, int levels) {
-    TRACE("Memory map:");
-    for (size_t i = 0; i < g_memmap_request.response->entry_count; i++) {
-        struct limine_memmap_entry* entry = g_memmap_request.response->entries[i];
-
-        TRACE("\t%016lx-%016lx: %s", entry->base, entry->base + (entry->length - 1),
-              g_memmap_type_strs[entry->type]);
-
-        if (entry->type != LIMINE_MEMMAP_USABLE &&
-            entry->type != LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE) {
-            continue;
-        }
-
-        early_virt_map(table, levels, phys_to_direct(entry->base), entry->base,
-                       entry->length / PAGE_SIZE, VM_PERM_RW);
+        *pte = phys | IA32_PG_P | IA32_PG_A | flags;
     }
 }
 
@@ -171,17 +135,96 @@ static void early_map_vmar(void* table, int levels, vmar_t* vmar, vm_perm_t perm
 
     vmar_link(&g_kernel_region, vmar);
 
-    early_virt_map(table, levels, vmar->base, phys_addr, vmar->page_count, perms);
+    uint64_t flags = IA32_PG_G;
+    if (perms == VM_PERM_RW) {
+        flags |= IA32_PG_D | IA32_PG_RW;
+    }
+    if (perms != VM_PERM_RX) {
+        flags |= IA32_PG_NX;
+    }
+    early_virt_map(table, levels, vmar->base, phys_addr, vmar->page_count, flags);
 }
 
-static void create_kernel_mapping(void* table, int levels) {
+static void early_map_kernel(void* table, int levels) {
     TRACE("Mapping kernel");
     early_map_vmar(table, levels, &g_kernel_text_mapping, VM_PERM_RX);
     early_map_vmar(table, levels, &g_kernel_rodata_mapping, VM_PERM_RO);
     early_map_vmar(table, levels, &g_kernel_data_mapping, VM_PERM_RW);
 }
 
-void init_early_virt(void) {
+static void early_map_direct_map(void* table, int levels) {
+    for (size_t i = 0; i < g_memmap_request.response->entry_count; i++) {
+        struct limine_memmap_entry* entry = g_memmap_request.response->entries[i];
+        if (entry->type != LIMINE_MEMMAP_USABLE &&
+            entry->type != LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE) {
+            continue;
+        }
+        early_virt_map(table, levels, phys_to_direct(entry->base), entry->base,
+                       entry->length / PAGE_SIZE, IA32_PG_RW | IA32_PG_D | IA32_PG_NX);
+    }
+}
+
+static void early_map_buddy_bitmap(void* table, int levels) {
+    size_t bitmap_page_count = DIV_ROUND_UP(DIV_ROUND_UP(g_direct_map.page_count, 8), PAGE_SIZE);
+    ASSERT_SUCCESS(vmar_allocate_static(&g_kernel_region, &g_buddy_bitmap_mapping, VMAR_ANY_OFFSET,
+                                        bitmap_page_count));
+
+    struct limine_memmap_response* response = g_memmap_request.response;
+    for (size_t i = 0; i < response->entry_count; i++) {
+        struct limine_memmap_entry* entry = response->entries[i];
+        if (entry->type != LIMINE_MEMMAP_USABLE &&
+            entry->type != LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE) {
+            continue;
+        }
+
+        // calculate the bitmap range that we need to allocate
+        size_t bitmap_start = ALIGN_DOWN((entry->base / PAGE_SIZE) / 8, PAGE_SIZE);
+        size_t bitmap_size = ALIGN_UP(DIV_ROUND_UP(entry->length / PAGE_SIZE, 8), PAGE_SIZE);
+
+        // map the entire bitmap right now
+        void* bitmap_ptr = g_buddy_bitmap_mapping.base + bitmap_start;
+        void* bitmap_end = g_buddy_bitmap_mapping.base + bitmap_start + bitmap_size;
+        for (; bitmap_ptr < bitmap_end; bitmap_ptr += PAGE_SIZE) {
+            uint64_t* pte = early_virt_get_pte(table, levels, bitmap_ptr);
+            if (*pte & IA32_PG_P) {
+                continue;
+            }
+
+            // allocate and map the page, we mark it as RW, global (it never gets unmapped)
+            // and as both dirty and accessed because we don't care for that information
+            uint64_t entry = direct_to_phys(early_phys_alloc_page());
+            entry |= IA32_PG_P | IA32_PG_RW | IA32_PG_NX;
+            entry |= IA32_PG_G;
+            entry |= IA32_PG_D | IA32_PG_A;
+            *pte = entry;
+        }
+    }
+}
+
+static void early_phys_add_memory() {
+    struct limine_memmap_response* response = g_memmap_request.response;
+    for (size_t i = 0; i < response->entry_count; i++) {
+        struct limine_memmap_entry* entry = response->entries[i];
+        if (entry->type != LIMINE_MEMMAP_USABLE) {
+            continue;
+        }
+
+        uintptr_t base = entry->base;
+        uintptr_t end = base + entry->length;
+
+        if (end < g_early_alloc_top) {
+            continue;
+        }
+
+        if (base < g_early_alloc_top) {
+            base = g_early_alloc_top;
+        }
+
+        phys_add_memory(phys_to_direct(base), phys_to_direct(end));
+    }
+}
+
+void init_early_mem(void) {
     // start by initializing some of the basic structs
     int levels = init_kernel_region();
     init_direct_map();
@@ -189,11 +232,15 @@ void init_early_virt(void) {
     // continue by creating the page table and everything
     // we need to finish early booting
     void* table = early_phys_alloc_page();
-    create_direct_map(table, levels);
-    create_kernel_mapping(table, levels);
+    early_map_kernel(table, levels);
+    early_map_direct_map(table, levels);
+    early_map_buddy_bitmap(table, levels);
 
     // switch to new page table
     __writecr3(direct_to_phys(table));
+
+    // finish up by setting the allocator
+    early_phys_add_memory();
 
     vmar_dump(&g_kernel_region);
 }

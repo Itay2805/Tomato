@@ -77,6 +77,98 @@ static inline rb_node_t* rb_add_augmented_cached(rb_node_t* node, rb_root_cached
     return leftmost ? node : nullptr;
 }
 
+/**
+ * rb_find_add_augmented_linked() - find equivalent @node in @tree, or add @node
+ * @node: node to look-for / insert
+ * @tree: linked tree to search / modify
+ * @cmp: operator defining the node order
+ * @augment: augmented callbacks of the tree
+ *
+ * The augmented data of @node must already be valid for a leaf on entry.
+ *
+ * Returns the rb_node matching @node, or NULL when no match is found and @node
+ * is inserted.
+ */
+[[clang::always_inline]]
+static inline rb_node_t* rb_find_add_augmented_linked(rb_node_linked_t* node,
+                                                      rb_root_linked_t* tree,
+                                                      int (*cmp)(rb_node_t*, const rb_node_t*),
+                                                      const rb_augment_callbacks_t* augment) {
+    rb_node_t** link = &tree->rb_root.rb_node;
+    rb_node_t* parent = nullptr;
+    int c;
+
+    while (*link) {
+        parent = *link;
+        c = cmp(&node->node, parent);
+
+        if (c < 0)
+            link = &parent->rb_left;
+        else if (c > 0)
+            link = &parent->rb_right;
+        else
+            return parent;
+    }
+
+    node->prev = node->next = nullptr;
+    rb_link_linked_node(&node->node, parent, link);
+    if (!node->prev)
+        tree->rb_leftmost = node;
+
+    rb_link_node(&node->node, parent, link);
+    augment->propagate(parent, nullptr); /* suboptimal */
+    rb_insert_augmented(&node->node, &tree->rb_root, augment);
+    return nullptr;
+}
+
+/**
+ * rb_find_first_fit() - find the leftmost node in @tree that fits @key
+ * @key: key to fit
+ * @tree: tree to search
+ * @fits: does the node itself fit the key
+ * @subtree_fits: may any node in the subtree rooted at the node fit the key,
+ *                answered from the augmented data so whole subtrees are skipped
+ *
+ * Returns the leftmost fitting node, or NULL.
+ */
+[[clang::always_inline]]
+static inline rb_node_t* rb_find_first_fit(const void* key, const rb_root_t* tree,
+                                           bool (*fits)(const void* key, const rb_node_t*),
+                                           bool (*subtree_fits)(const void* key,
+                                                                const rb_node_t*)) {
+    rb_node_t* node = tree->rb_node;
+    if (!node || !subtree_fits(key, node))
+        return nullptr;
+
+    while (true) {
+        /* Visit left subtree if it looks promising */
+        if (node->rb_left && subtree_fits(key, node->rb_left)) {
+            node = node->rb_left;
+            continue;
+        }
+
+    check_current:
+        if (fits(key, node))
+            return node;
+
+        /* Visit right subtree if it looks promising */
+        if (node->rb_right && subtree_fits(key, node->rb_right)) {
+            node = node->rb_right;
+            continue;
+        }
+
+        /* Go back up the rbtree to find next candidate node */
+        while (true) {
+            rb_node_t* prev = node;
+            node = rb_parent(prev);
+            if (!node)
+                return nullptr;
+            if (prev == node->rb_left)
+                goto check_current;
+        }
+    }
+}
+
 /*
  * Template for declaring augmented rbtree callbacks (generic case)
  *
@@ -296,4 +388,13 @@ static inline void rb_erase_augmented_cached(rb_node_t* node, rb_root_cached_t* 
     if (root->rb_leftmost == node)
         root->rb_leftmost = rb_next(node);
     rb_erase_augmented(node, &root->rb_root, augment);
+}
+
+[[clang::always_inline]]
+static inline bool rb_erase_augmented_linked(rb_node_linked_t* node, rb_root_linked_t* root,
+                                             const rb_augment_callbacks_t* augment) {
+    __rb_unlink_linked_node(node, root);
+    rb_erase_augmented(&node->node, &root->rb_root, augment);
+    RB_CLEAR_LINKED_NODE(node);
+    return !!root->rb_leftmost;
 }

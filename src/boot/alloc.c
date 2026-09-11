@@ -9,7 +9,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-static uintptr_t m_early_alloc_top = 0;
+uintptr_t g_early_alloc_top = 0;
 static size_t m_early_alloc_size = 0;
 
 static void early_alloc_find_next_entry() {
@@ -26,13 +26,13 @@ static void early_alloc_find_next_entry() {
 
         // must be above the current top (we assume this is called only
         // once we are out of memory to allocate)
-        if (entry->base < m_early_alloc_top) {
+        if (entry->base < g_early_alloc_top) {
             continue;
         }
 
-        m_early_alloc_top = entry->base;
+        g_early_alloc_top = entry->base;
         m_early_alloc_size = entry->length;
-        ASSERT((m_early_alloc_top % PAGE_SIZE) == 0);
+        ASSERT((g_early_alloc_top % PAGE_SIZE) == 0);
         ASSERT((m_early_alloc_size % PAGE_SIZE) == 0);
         return;
     }
@@ -45,8 +45,8 @@ void* early_phys_alloc_page() {
         early_alloc_find_next_entry();
     }
 
-    uintptr_t phys = m_early_alloc_top;
-    m_early_alloc_top += PAGE_SIZE;
+    uintptr_t phys = g_early_alloc_top;
+    g_early_alloc_top += PAGE_SIZE;
     m_early_alloc_size -= PAGE_SIZE;
 
     void* ptr = phys_to_direct(phys);
