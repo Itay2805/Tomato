@@ -1,7 +1,6 @@
 #include "mem.h"
+#include "arch/intrin.h"
 #include "arch/virt.h"
-#include "boot/alloc.h"
-#include "entry.h"
 #include "lib/assert.h"
 #include "lib/string.h"
 #include "lib/trace.h"
@@ -38,6 +37,56 @@ static volatile struct limine_executable_address_request g_executable_address = 
     .id = LIMINE_EXECUTABLE_ADDRESS_REQUEST_ID, .revision = 0, .response = nullptr
 };
 
+[[gnu::section(".limine_requests")]]
+static volatile struct limine_memmap_request m_memmap_request = { .id = LIMINE_MEMMAP_REQUEST_ID,
+                                                                  .revision = 0,
+                                                                  .response = nullptr };
+
+uintptr_t g_early_alloc_top = 0;
+static size_t m_early_alloc_size = 0;
+
+static void early_alloc_find_next_entry() {
+    struct limine_memmap_response* response = m_memmap_request.response;
+    ASSERT(response != NULL);
+
+    // we assume this is sorted by address
+    for (size_t i = 0; i < response->entry_count; i++) {
+        struct limine_memmap_entry* entry = response->entries[i];
+        // must be a usable entry
+        if (entry->type != LIMINE_MEMMAP_USABLE) {
+            continue;
+        }
+
+        // must be above the current top (we assume this is called only
+        // once we are out of memory to allocate)
+        if (entry->base < g_early_alloc_top) {
+            continue;
+        }
+
+        g_early_alloc_top = entry->base;
+        m_early_alloc_size = entry->length;
+        ASSERT((g_early_alloc_top % PAGE_SIZE) == 0);
+        ASSERT((m_early_alloc_size % PAGE_SIZE) == 0);
+        return;
+    }
+
+    ASSERT(!"Ran out of memory during boot");
+}
+
+void* early_phys_alloc_page() {
+    if (m_early_alloc_size == 0) {
+        early_alloc_find_next_entry();
+    }
+
+    uintptr_t phys = g_early_alloc_top;
+    g_early_alloc_top += PAGE_SIZE;
+    m_early_alloc_size -= PAGE_SIZE;
+
+    void* ptr = phys_to_direct(phys);
+    memset(ptr, 0, PAGE_SIZE);
+    return ptr;
+}
+
 //
 // Setup early regions
 //
@@ -63,12 +112,12 @@ static int init_kernel_region() {
 static void init_direct_map() {
     // set the direct map base and length
     ASSERT(g_hhdm_request.response != NULL);
-    ASSERT(g_memmap_request.response != NULL);
+    ASSERT(m_memmap_request.response != NULL);
 
     // find the top most address that we need to store in kernel
     uintptr_t top_address = 0;
-    for (int64_t i = g_memmap_request.response->entry_count - 1; i >= 0; i--) {
-        struct limine_memmap_entry* entry = g_memmap_request.response->entries[i];
+    for (int64_t i = m_memmap_request.response->entry_count - 1; i >= 0; i--) {
+        struct limine_memmap_entry* entry = m_memmap_request.response->entries[i];
         if (entry->type == LIMINE_MEMMAP_USABLE ||
             entry->type == LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE) {
             top_address = entry->base + entry->length;
@@ -153,8 +202,8 @@ static void early_map_kernel(void* table, int levels) {
 }
 
 static void early_map_direct_map(void* table, int levels) {
-    for (size_t i = 0; i < g_memmap_request.response->entry_count; i++) {
-        struct limine_memmap_entry* entry = g_memmap_request.response->entries[i];
+    for (size_t i = 0; i < m_memmap_request.response->entry_count; i++) {
+        struct limine_memmap_entry* entry = m_memmap_request.response->entries[i];
         if (entry->type != LIMINE_MEMMAP_USABLE &&
             entry->type != LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE) {
             continue;
@@ -169,7 +218,7 @@ static void early_map_buddy_bitmap(void* table, int levels) {
     ASSERT_SUCCESS(vmar_allocate_static(&g_kernel_region, &g_buddy_bitmap_mapping, VMAR_ANY_OFFSET,
                                         bitmap_page_count));
 
-    struct limine_memmap_response* response = g_memmap_request.response;
+    struct limine_memmap_response* response = m_memmap_request.response;
     for (size_t i = 0; i < response->entry_count; i++) {
         struct limine_memmap_entry* entry = response->entries[i];
         if (entry->type != LIMINE_MEMMAP_USABLE &&
@@ -202,7 +251,7 @@ static void early_map_buddy_bitmap(void* table, int levels) {
 }
 
 static void early_phys_add_memory() {
-    struct limine_memmap_response* response = g_memmap_request.response;
+    struct limine_memmap_response* response = m_memmap_request.response;
     for (size_t i = 0; i < response->entry_count; i++) {
         struct limine_memmap_entry* entry = response->entries[i];
         if (entry->type != LIMINE_MEMMAP_USABLE) {

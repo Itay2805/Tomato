@@ -100,12 +100,6 @@ typedef enum vm_perm {
 err_t vmar_link(vmar_t* parent, vmar_t* child);
 
 /**
- * Unlink a VMAR from its parent, the VMAR itself is left intact
- * so it can be linked again (children included).
- */
-err_t vmar_unlink(vmar_t* child);
-
-/**
  * Place the child in the parent and link it.
  *
  * The offset is relative to the start of the parent, if it is VMAR_ANY_OFFSET

@@ -3,6 +3,17 @@
 #include "arch/intrin.h"
 #include <stddef.h>
 
+static inline void irq_enable() {
+    asm("sti");
+}
+static inline void irq_disable() {
+    asm("cli");
+}
+
+static inline bool irq_enabled() {
+    return __builtin_ia32_readeflags_u64() & (1 << 9);
+}
+
 typedef struct irq_state {
     bool enabled;
 } irq_state_t;

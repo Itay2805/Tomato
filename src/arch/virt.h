@@ -52,11 +52,3 @@
  */
 #define PAGING_INDEX_BITS 9
 #define PAGING_INDEX_MASK ((1 << PAGING_INDEX_BITS) - 1)
-
-static inline void __writecr3(const unsigned long long Data) {
-    __asm__ __volatile__("mov %[Data], %%cr3" : : [Data] "q"(Data) : "memory");
-}
-
-static inline void __invlpg(void* m) {
-    asm volatile("invlpg (%0)" : : "b"(m) : "memory");
-}
