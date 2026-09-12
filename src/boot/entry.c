@@ -1,3 +1,4 @@
+#include "boot/arch.h"
 #include "boot/virt.h"
 #include "lib/assert.h"
 #include "lib/trace.h"
@@ -56,6 +57,9 @@ void _start(void) {
     TRACE("Tomato!");
 #endif
     bootloader_sanity();
+
+    // make sure we have all the required cpu features
+    arch_early_init();
 
     // early setup, this leaves us with our own page
     // tables and a working physical memory allocator
