@@ -48,6 +48,8 @@ static void arch_validate_required_cpu_features() {
     {
         CPUID_VERSION_INFO_ECX ecx;
         ASSERT(cpuid(CPUID_VERSION_INFO, nullptr, nullptr, &ecx.raw, nullptr));
+        ASSERT(ecx.RDRAND, "Missing RDRAND support");
+
         // x86-64-v3
         ASSERT(ecx.XSAVE, "Missing XSAVE support");
         ASSERT(ecx.SSE3, "Missing SSE3 support");

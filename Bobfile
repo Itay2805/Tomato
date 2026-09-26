@@ -29,6 +29,8 @@ c.cflags.add(
         "-target",
         "x86_64-pc-none-elf",
         "-march=x86-64-v3",
+        # We need support for rdrand
+        "-mrdrnd",
         # All the errors
         "-Wall",
         "-Wextra",
@@ -64,7 +66,7 @@ c.cflags.add(
         "-fcf-protection=branch",
         "-fno-jump-tables",
         # Strong stack protector
-        # "-fstack-protector-strong",
+        "-fstack-protector-strong",
         # Only allow C99 flexible arrays
         "-fstrict-flex-arrays=3",
         # To make the code less prone to mistakes
