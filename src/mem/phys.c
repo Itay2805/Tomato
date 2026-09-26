@@ -1,6 +1,7 @@
 #include "phys.h"
 #include "lib/assert.h"
 #include "lib/hlist.h"
+#include "lib/string.h"
 #include "mem/mapping.h"
 #include "sync/mutex.h"
 #include "util/except.h"
@@ -89,7 +90,12 @@ void* phys_alloc(size_t size) {
     hlist_t* freelist = &m_phys_buddy_levels[block_at_level];
     buddy_free_page_t* page = hlist_entry(freelist->first, buddy_free_page_t, node);
     ASSERT(page->level == block_at_level);
+
+    // we want to zero the free page header
+    // so the entire block ends up being zeroed
+    // (we already zero on free)
     hlist_del(&page->node);
+    *page = (buddy_free_page_t){};
 
     // split the blocks until we reach
     // the requested level
@@ -142,8 +148,10 @@ static void phys_free_internal(void* ptr, int level, bool check_allocated) {
             break;
         }
 
-        // remove it from the freelist
+        // remove it from the freelist, and zero its header since it
+        // ends up in the middle of the merged block
         hlist_del(&neighbor->node);
+        *neighbor = (buddy_free_page_t){};
 
         // if the neighbor is from the bottom
         // then merge with it from the bottom
@@ -169,6 +177,10 @@ void phys_free(void* ptr, size_t size) {
 
     int level = get_level_by_size(size);
     ASSERT(level >= 0);
+
+    // zero it before freeing
+    size_t block_size = 1ULL << (level + PHYS_BUDDY_MIN_ORDER);
+    memset(ptr, 0, block_size);
 
     phys_free_internal(ptr, level, true);
 }
@@ -199,6 +211,9 @@ static int get_best_level_for_block(void* start, void* end) {
 }
 
 void phys_add_memory(void* start, void* end) {
+    // zero the entire region
+    memset(start, 0, end - start);
+
     while (start < end) {
         // get the best level that fits the block
         int level = get_best_level_for_block(start, end);
