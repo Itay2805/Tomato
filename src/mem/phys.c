@@ -1,6 +1,7 @@
 #include "phys.h"
 #include "lib/assert.h"
 #include "lib/list.h"
+#include "lib/string.h"
 #include "mem/mapping.h"
 #include "sync/mutex.h"
 #include "util/except.h"
@@ -85,7 +86,13 @@ void* phys_alloc(size_t size) {
         if (!list_empty(freelist)) {
             buddy_free_page_t* page = list_first_entry(freelist, buddy_free_page_t, entry);
             ASSERT(page->level == block_at_level);
+
+            // we want to zero the free page header
+            // so the entire block ends up being zeroed
+            // (we already zero on free)
             list_del(&page->entry);
+            *page = (buddy_free_page_t){};
+
             block = page;
             break;
         }
@@ -172,6 +179,10 @@ void phys_free(void* ptr, size_t size) {
     int level = get_level_by_size(size);
     ASSERT(level >= 0);
 
+    // zero it before freeing
+    size_t block_size = 1ULL << (level + PHYS_BUDDY_MIN_ORDER);
+    memset(ptr, 0, block_size);
+
     phys_free_internal(ptr, level, true);
 }
 
@@ -201,6 +212,9 @@ static int get_best_level_for_block(void* start, void* end) {
 }
 
 void phys_add_memory(void* start, void* end) {
+    // zero the entire region
+    memset(start, 0, end - start);
+
     while (start < end) {
         // get the best level that fits the block
         int level = get_best_level_for_block(start, end);
