@@ -1,9 +1,12 @@
 #include "boot/arch.h"
+#include "boot/random.h"
 #include "boot/virt.h"
 #include "lib/assert.h"
+#include "lib/sp.h"
 #include "lib/trace.h"
 #include "limine.h"
 
+#include <immintrin.h>
 #include <stdint.h>
 
 /////////////////////////////////////////////////////////////////////////
@@ -50,6 +53,13 @@ static void bootloader_sanity(void) {
     }
 }
 
+[[clang::no_stack_protector]]
+static void init_stack_guard(void) {
+    uint64_t value = boot_random_get(RANDOM_INDEX_STACK_CHK_GUARD);
+    value &= ~(uintptr_t)0xFF; // ensure string operations don't corrupt too much
+    __stack_chk_guard = value;
+}
+
 void _start(void) {
 #ifdef __DEBUG__
     TRACE("Tomato! (DEBUG)");
@@ -57,6 +67,9 @@ void _start(void) {
     TRACE("Tomato!");
 #endif
     bootloader_sanity();
+
+    // setup the stack guard as soon as possible
+    init_stack_guard();
 
     // make sure we have all the required cpu features
     arch_early_init();

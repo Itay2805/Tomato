@@ -63,6 +63,8 @@ c.cflags.add(
         # Enable full CFI for kernel IBT
         "-fcf-protection=branch",
         "-fno-jump-tables",
+        # Strong stack protector
+        "-fstack-protector-strong",
         # Only allow C99 flexible arrays
         "-fstrict-flex-arrays=3",
         # To make the code less prone to mistakes
