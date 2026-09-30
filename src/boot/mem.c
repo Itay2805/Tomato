@@ -128,8 +128,6 @@ static void init_direct_map() {
     // set the region, we will link it later
     g_direct_map.base = (void*)g_hhdm_request.response->offset;
     g_direct_map.page_count = top_address / PAGE_SIZE;
-
-    vmar_link(&g_kernel_region, &g_direct_map);
 }
 
 //
@@ -182,8 +180,6 @@ static void early_map_vmar(void* table, int levels, vmar_t* vmar, vm_perm_t perm
     TRACE("\t%p-%p: %lu pages [r%c%c]", vmar->base, vmar->base + (vmar->page_count * PAGE_SIZE) - 1,
           vmar->page_count, w, x);
 
-    vmar_link(&g_kernel_region, vmar);
-
     uint64_t flags = IA32_PG_G;
     if (perms == VM_PERM_RW) {
         flags |= IA32_PG_D | IA32_PG_RW;
@@ -213,7 +209,7 @@ static void early_map_direct_map(void* table, int levels) {
     }
 }
 
-static void early_map_buddy_bitmap(void* table, int levels) {
+static void early_create_buddy_bitmap(void* table, int levels) {
     size_t bitmap_page_count = DIV_ROUND_UP(DIV_ROUND_UP(g_direct_map.page_count, 8), PAGE_SIZE);
     ASSERT_SUCCESS(vmar_allocate_static(&g_kernel_region, &g_buddy_bitmap_mapping, VMAR_ANY_OFFSET,
                                         bitmap_page_count));
@@ -274,21 +270,31 @@ static void early_phys_add_memory() {
 }
 
 void init_early_mem(void) {
-    // start by initializing some of the basic structs
+    // initialize the basic regions
     int levels = init_kernel_region();
     init_direct_map();
 
-    // continue by creating the page table and everything
-    // we need to finish early booting
+    // map the kernel and direct map, don't link
+    // them to the vmar tree yet, because we want
+    // to avoid code that will use kasan
     void* table = early_phys_alloc_page();
     early_map_kernel(table, levels);
     early_map_direct_map(table, levels);
-    early_map_buddy_bitmap(table, levels);
-
-    // switch to new page table
+    // TODO: create kasan range
     __writecr3(direct_to_phys(table));
 
-    // finish up by setting the allocator
+    // we now have kasan and can finalize the early
+    // memory init
+
+    // now with the new page table finialize the
+    vmar_link(&g_kernel_region, &g_direct_map);
+    vmar_link(&g_kernel_region, &g_kernel_text_mapping);
+    vmar_link(&g_kernel_region, &g_kernel_rodata_mapping);
+    vmar_link(&g_kernel_region, &g_kernel_data_mapping);
+
+    // now initialize the buddy allocator bitmap
+    // and add all physical memory to it
+    early_create_buddy_bitmap(table, levels);
     early_phys_add_memory();
 
     vmar_dump(&g_kernel_region);
