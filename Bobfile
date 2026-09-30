@@ -126,14 +126,37 @@ else:
         ]
     )
 
+# Split the sources into kernel ones and boot code ones
+sources = glob("**/*.c", Path("src"))
+boot_sources = glob("**/*.c", Path("src/boot"))
+for boot_source in boot_sources:
+    sources.remove(boot_source)
+
+#
+# The boot code, it builds without kasan to make
+# it easier to initialize kasan
+#
+boot_code = c.static_library_bundle(
+    name="boot",
+    sources=boot_sources,
+)
+
+#
+# The kernel code, it builds with kasan
+#
+kernel_code = c.static_library_bundle(
+    name="kernel",
+    sources=sources,
+)
+
 # The kernel itself
 kernel = c.binary(
     name="kernel.elf",
     implicit=[
         Path("src/linker.lds"),
     ],
-    # TODO: filter arch folders only to the target arch
-    sources=glob("**/*.c", Path("src")),
+    bundles=[boot_code, kernel_code],
+    sources=[],
 )
 
 
