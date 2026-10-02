@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 #pragma once
 
+#include "lib/container_of.h"
 #include "util/defs.h"
 #include <stddef.h>
 
@@ -14,7 +15,7 @@ typedef struct list_entry {
 
 typedef list_entry_t list_t;
 
-#define LIST_INIT(name) { &(name), &(name) }
+#define LIST_INIT(name) ((list_t){ &(name), &(name) })
 
 [[gnu::cold, noreturn]]
 void __list_add_valid_or_report(list_entry_t* new, list_entry_t* prev, list_entry_t* next);

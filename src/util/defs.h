@@ -3,6 +3,9 @@
 #define LIKELY(x)   __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
 
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
 #define DIV_ROUND_UP(a, b)   (((a) + ((b) - 1)) / (b))
 #define ALIGN_UP(x, align)   __builtin_align_up(x, align)
 #define ALIGN_DOWN(x, align) __builtin_align_down(x, align)
