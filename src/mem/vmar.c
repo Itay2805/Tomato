@@ -137,7 +137,6 @@ static err_t vmar_link_internal(vmar_t* parent, vmar_t* child) {
     CHECK_ARG(parent->kind == VMAR_KIND_REGION);
     CHECK_ARG(child->parent == nullptr);
     CHECK_ARG(((uintptr_t)child->base & PAGE_MASK) == 0);
-    CHECK_ARG(child->page_count != 0);
 
     // must be fully contained within the parent
     size_t end;

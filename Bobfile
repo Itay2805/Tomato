@@ -93,6 +93,8 @@ c.ldflags.add(
         "-Wl,--build-id=none",
         # Add our linker script
         "-Tsrc/linker.lds",
+        # Keep the relocations so we can check nothing references init code
+        "-Wl,--emit-relocs",
     ]
 )
 
@@ -157,6 +159,23 @@ kernel = c.binary(
     ],
     bundles=[boot_code, kernel_code],
     sources=[],
+)
+
+python_post_process = Rule(
+    "uv run --quiet python $script $in && touch $out", description="PYTHON"
+)
+
+init_refs_stamp = python_post_process.build(
+    "init-refs.stamp",
+    inputs=[
+        kernel,
+    ],
+    variables={
+        "script": "tools/check_init_refs.py",
+    },
+    implicit=[
+        Path("tools/check_init_refs.py"),
+    ],
 )
 
 
@@ -262,7 +281,7 @@ limine_image = Rule(
 image = limine_image.build(
     "tomato.hdd",
     inputs=[kernel, LIMINE_CONF, limine_bios_sys, limine_bootx64],
-    implicit=[limine_tool],
+    implicit=[limine_tool, init_refs_stamp],
     variables={
         "limine": limine_tool,
         "kernel": kernel,

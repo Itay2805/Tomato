@@ -3,6 +3,7 @@
 #include "lib/assert.h"
 #include "lib/trace.h"
 #include "limine.h"
+#include "mem/phys.h"
 #include "util/sp.h"
 #include <immintrin.h>
 

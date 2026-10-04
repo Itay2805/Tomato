@@ -34,6 +34,10 @@ extern vmar_t g_kernel_text_mapping;
 extern vmar_t g_kernel_rodata_mapping;
 extern vmar_t g_kernel_data_mapping;
 
+extern vmar_t g_kernel_init_text_mapping;
+extern vmar_t g_kernel_init_rodata_mapping;
+extern vmar_t g_kernel_init_data_mapping;
+
 // The user region
 extern vmar_t g_user_region;
 extern vmar_t g_null_region;

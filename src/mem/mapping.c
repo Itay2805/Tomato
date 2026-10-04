@@ -36,6 +36,10 @@ KERNEL_REGION(text);
 KERNEL_REGION(rodata);
 KERNEL_REGION(data);
 
+KERNEL_REGION(init_text);
+KERNEL_REGION(init_rodata);
+KERNEL_REGION(init_data);
+
 vmar_t g_user_region = {
     .name = "user",
     .kind = VMAR_KIND_REGION,

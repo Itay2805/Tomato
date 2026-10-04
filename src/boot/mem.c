@@ -177,8 +177,8 @@ static void early_map_vmar(void* table, int levels, vmar_t* vmar, vm_perm_t perm
 
     char w = perms == VM_PERM_RW ? 'w' : '-';
     char x = perms == VM_PERM_RX ? 'x' : '-';
-    TRACE("\t%p-%p: %lu pages [r%c%c]", vmar->base, vmar->base + (vmar->page_count * PAGE_SIZE) - 1,
-          vmar->page_count, w, x);
+    TRACE("\t%p-%p: %lu pages [r%c%c] %s", vmar->base,
+          vmar->base + (vmar->page_count * PAGE_SIZE) - 1, vmar->page_count, w, x, vmar->name);
 
     uint64_t flags = IA32_PG_G;
     if (perms == VM_PERM_RW) {
@@ -192,6 +192,9 @@ static void early_map_vmar(void* table, int levels, vmar_t* vmar, vm_perm_t perm
 
 static void early_map_kernel(void* table, int levels) {
     TRACE("Mapping kernel");
+    early_map_vmar(table, levels, &g_kernel_init_text_mapping, VM_PERM_RX);
+    early_map_vmar(table, levels, &g_kernel_init_rodata_mapping, VM_PERM_RO);
+    early_map_vmar(table, levels, &g_kernel_init_data_mapping, VM_PERM_RW);
     early_map_vmar(table, levels, &g_kernel_text_mapping, VM_PERM_RX);
     early_map_vmar(table, levels, &g_kernel_rodata_mapping, VM_PERM_RO);
     early_map_vmar(table, levels, &g_kernel_data_mapping, VM_PERM_RW);
@@ -288,6 +291,9 @@ void init_early_mem(void) {
 
     // now with the new page table finialize the
     vmar_link(&g_kernel_region, &g_direct_map);
+    vmar_link(&g_kernel_region, &g_kernel_init_text_mapping);
+    vmar_link(&g_kernel_region, &g_kernel_init_rodata_mapping);
+    vmar_link(&g_kernel_region, &g_kernel_init_data_mapping);
     vmar_link(&g_kernel_region, &g_kernel_text_mapping);
     vmar_link(&g_kernel_region, &g_kernel_rodata_mapping);
     vmar_link(&g_kernel_region, &g_kernel_data_mapping);
@@ -296,6 +302,4 @@ void init_early_mem(void) {
     // and add all physical memory to it
     early_create_buddy_bitmap(table, levels);
     early_phys_add_memory();
-
-    vmar_dump(&g_kernel_region);
 }
