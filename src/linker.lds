@@ -5,6 +5,10 @@ PHDRS
 {
     limine_requests PT_LOAD;
 
+    init_text PT_LOAD;
+    init_rodata PT_LOAD;
+    init_data PT_LOAD;
+
     text PT_LOAD;
     rodata PT_LOAD;
     data PT_LOAD;
@@ -25,6 +29,33 @@ SECTIONS
 
     . = ALIGN(CONSTANT(MAXPAGESIZE));
     __limine_requests_page_count = (. - __limine_requests_start) / CONSTANT(MAXPAGESIZE);
+    __init_text_start = .;
+
+    .init.text : {
+        */boot.a:*(.text .text.*)
+        *(.init.text .init.text.*)
+    } :init_text
+
+    . = ALIGN(CONSTANT(MAXPAGESIZE));
+    __init_text_page_count = (. - __init_text_start) / CONSTANT(MAXPAGESIZE);
+    __init_rodata_start = .;
+
+    .init.rodata : {
+        */boot.a:*(.rodata .rodata.*)
+        *(.init.rodata .init.rodata.*)
+    } :init_rodata
+
+    . = ALIGN(CONSTANT(MAXPAGESIZE));
+    __init_rodata_page_count = (. - __init_rodata_start) / CONSTANT(MAXPAGESIZE);
+    __init_data_start = .;
+
+    .init.data : {
+        */boot.a:*(.data .data.*)
+        *(.init.data .init.data.*)
+    } :init_data
+
+    . = ALIGN(CONSTANT(MAXPAGESIZE));
+    __init_data_page_count = (. - __init_data_start) / CONSTANT(MAXPAGESIZE);
     __text_start = .;
 
     .text : {

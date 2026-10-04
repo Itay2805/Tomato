@@ -14,6 +14,9 @@ extern vmar_t g_buddy_bitmap_mapping;
 
 // The kernel sections
 extern vmar_t g_kernel_limine_requests_mapping;
+extern vmar_t g_kernel_init_text_mapping;
+extern vmar_t g_kernel_init_rodata_mapping;
+extern vmar_t g_kernel_init_data_mapping;
 extern vmar_t g_kernel_text_mapping;
 extern vmar_t g_kernel_rodata_mapping;
 extern vmar_t g_kernel_data_mapping;

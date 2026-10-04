@@ -13,6 +13,16 @@
 #define _CONCAT(a, b) a##b
 #define CONCAT(a, b)  _CONCAT(a, b)
 
+/**
+ * Mark function as init code, it will get deleted once kernel init is done
+ */
+#define INIT_CODE [[gnu::section(".init.text")]]
+
+/**
+ * Mark variable as init data, it will get deleted once kernel init is done
+ */
+#define INIT_DATA [[gnu::section(".init.data")]]
+
 #define BIT0  0x00000001
 #define BIT1  0x00000002
 #define BIT2  0x00000004

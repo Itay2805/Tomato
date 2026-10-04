@@ -172,7 +172,7 @@ static void vmar_link_internal(vmar_t* parent, vmar_t* child) {
     }
 }
 
-void vmar_link(vmar_t* parent, vmar_t* child) {
+INIT_CODE void vmar_link(vmar_t* parent, vmar_t* child) {
     rwlock_exclusive_guard(&m_vmar_lock);
     ASSERT_SUCCESS(vmar_check_in_parent(parent, child));
     vmar_link_internal(parent, child);

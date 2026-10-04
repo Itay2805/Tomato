@@ -34,6 +34,10 @@ vmar_t g_buddy_bitmap_mapping = {
 
 KERNEL_REGION(limine_requests);
 
+KERNEL_REGION(init_text);
+KERNEL_REGION(init_rodata);
+KERNEL_REGION(init_data);
+
 KERNEL_REGION(text);
 KERNEL_REGION(rodata);
 KERNEL_REGION(data);
