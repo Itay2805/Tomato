@@ -75,8 +75,7 @@ void* phys_alloc(size_t size) {
         return NULL;
     }
 
-    mutex_lock(&m_phys_buddy_lock);
-    defer mutex_unlock(&m_phys_buddy_lock);
+    mutex_guard(&m_phys_buddy_lock);
 
     // search for a free page in the freelists that has the closest level to what we want
     int block_at_level = 0;
@@ -124,8 +123,7 @@ static void phys_free_internal(void* ptr, int level, bool check_allocated) {
     // sanity check
     ASSERT(((uintptr_t)ptr % (1UL << (level + PHYS_BUDDY_MIN_ORDER))) == 0);
 
-    mutex_lock(&m_phys_buddy_lock);
-    defer mutex_unlock(&m_phys_buddy_lock);
+    mutex_guard(&m_phys_buddy_lock);
 
     // mark the block as free right away
     if (check_allocated) {

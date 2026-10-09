@@ -69,8 +69,7 @@ static slab_t* slab_create(mem_alloc_t* alloc, const mem_alloc_meta_t* meta) {
 }
 
 void* mem_alloc(mem_alloc_t* alloc, const mem_alloc_meta_t* meta) {
-    mutex_lock(&alloc->lock);
-    defer mutex_unlock(&alloc->lock);
+    mutex_guard(&alloc->lock);
 
     // choose a slab to use, prefer partial slabs
     slab_t* slab;
@@ -116,8 +115,7 @@ void mem_free(mem_alloc_t* alloc, const mem_alloc_meta_t* meta, void* ptr) {
         return;
     }
 
-    mutex_lock(&alloc->lock);
-    defer mutex_unlock(&alloc->lock);
+    mutex_guard(&alloc->lock);
 
     // get the slab, and ensure it matches the alloc we are freeing from
     slab_t* slab = object_to_slab(ptr);

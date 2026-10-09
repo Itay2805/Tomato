@@ -2,6 +2,7 @@
 
 #include "util/defs.h"
 #include <stdatomic.h>
+#include <stddefer.h>
 
 #define MUTEX_LOCKED_BIT BIT0
 
@@ -14,6 +15,10 @@ void mutex_lock_slow(mutex_t* mutex);
 
 [[gnu::cold]]
 void mutex_unlock_slow(mutex_t* mutex);
+
+#define mutex_guard(mutex)                                                                         \
+    mutex_lock(mutex);                                                                             \
+    defer mutex_unlock(mutex);
 
 static inline void mutex_lock(mutex_t* mutex) {
     size_t zero = 0;

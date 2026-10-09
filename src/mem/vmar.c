@@ -167,8 +167,7 @@ static err_t vmar_link_internal(vmar_t* parent, vmar_t* child) {
 }
 
 err_t vmar_link(vmar_t* parent, vmar_t* child) {
-    rwlock_lock_exclusive(&m_vmar_lock);
-    defer rwlock_unlock_exclusive(&m_vmar_lock);
+    rwlock_exclusive_guard(&m_vmar_lock);
     return vmar_link_internal(parent, child);
 }
 
@@ -213,8 +212,7 @@ err_t vmar_allocate_static(vmar_t* parent, vmar_t* child, uintptr_t offset, size
     CHECK_ARG(parent->kind == VMAR_KIND_REGION);
     CHECK_ARG(page_count != 0);
 
-    rwlock_lock_exclusive(&m_vmar_lock);
-    defer rwlock_unlock_exclusive(&m_vmar_lock);
+    rwlock_exclusive_guard(&m_vmar_lock);
 
     uintptr_t base;
     if (offset == VMAR_ANY_OFFSET) {
@@ -347,8 +345,7 @@ static void vmar_dump_children(vmar_t* vmar, char* prefix, size_t prefix_len) {
 }
 
 void vmar_dump(vmar_t* root) {
-    rwlock_lock_shared(&m_vmar_lock);
-    defer rwlock_unlock_shared(&m_vmar_lock);
+    rwlock_shared_guard(&m_vmar_lock);
 
     char prefix[DUMP_PREFIX_SIZE] = "";
     vmar_dump_line(root, prefix, "");

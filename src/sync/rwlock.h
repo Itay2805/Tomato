@@ -2,6 +2,7 @@
 
 #include "util/defs.h"
 #include <stdatomic.h>
+#include <stddefer.h>
 
 #define RWLOCK_PARKED_BIT        BIT0
 #define RWLOCK_WRITER_PARKED_BIT BIT1
@@ -18,6 +19,14 @@ void rwlock_lock_exclusive_slow(rwlock_t* lock);
 
 [[gnu::cold]]
 void rwlock_unlock_exclusive_slow(rwlock_t* lock);
+
+#define rwlock_exclusive_guard(rwlock)                                                             \
+    rwlock_lock_exclusive(rwlock);                                                                 \
+    defer rwlock_unlock_exclusive(rwlock);
+
+#define rwlock_shared_guard(rwlock)                                                                \
+    rwlock_lock_shared(rwlock);                                                                    \
+    defer rwlock_unlock_shared(rwlock);
 
 static inline void rwlock_lock_exclusive(rwlock_t* lock) {
     size_t zero = 0;

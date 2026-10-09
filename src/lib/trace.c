@@ -14,7 +14,8 @@ void _trace(const char* fmt, ...) {
     va_end(ap);
 
     // TODO: something more generic/cross platform, how to abstract this?
-    irq_state_t state = irq_spinlock_acquire(&m_trace_lock);
+    irq_spinlock_guard(&m_trace_lock);
+
     char* p = buffer;
     while (*p) {
         if (*p == '\t') {
@@ -27,5 +28,4 @@ void _trace(const char* fmt, ...) {
         }
         p++;
     }
-    irq_spinlock_release(&m_trace_lock, state);
 }
