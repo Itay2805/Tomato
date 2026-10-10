@@ -194,7 +194,7 @@ init_refs_stamp = python_post_process.build(
 ################################################################################
 
 # The limine release to use, `latest` always grabs the newest one
-LIMINE_VERSION = config("LIMINE_VERSION", default="12.7.0")
+LIMINE_VERSION = config("LIMINE_VERSION", default="12.9.3")
 
 # The directory the release is unpacked into
 LIMINE_DIR = builddir() / "limine"
