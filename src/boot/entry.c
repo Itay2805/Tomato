@@ -4,7 +4,10 @@
 #include "lib/assert.h"
 #include "lib/trace.h"
 #include "limine.h"
+#include "mem/accounting.h"
+#include "mem/mapping.h"
 #include "mem/phys.h"
+#include "mem/vmar.h"
 #include "util/sp.h"
 #include <immintrin.h>
 #include <stdint.h>

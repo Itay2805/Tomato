@@ -6,6 +6,7 @@
 #include "lib/string.h"
 #include "lib/trace.h"
 #include "limine.h"
+#include "mem/accounting.h"
 #include "mem/mapping.h"
 #include "mem/phys.h"
 #include "mem/vmar.h"
@@ -43,8 +44,9 @@ static volatile struct limine_memmap_request m_memmap_request = { .id = LIMINE_M
                                                                   .revision = 0,
                                                                   .response = nullptr };
 
-uintptr_t g_early_alloc_top = 0;
+static uintptr_t m_early_alloc_top = 0;
 static size_t m_early_alloc_size = 0;
+static size_t m_early_alloc_page_count = 0;
 
 static void early_alloc_find_next_entry() {
     struct limine_memmap_response* response = m_memmap_request.response;
@@ -60,13 +62,13 @@ static void early_alloc_find_next_entry() {
 
         // must be above the current top (we assume this is called only
         // once we are out of memory to allocate)
-        if (entry->base < g_early_alloc_top) {
+        if (entry->base < m_early_alloc_top) {
             continue;
         }
 
-        g_early_alloc_top = entry->base;
+        m_early_alloc_top = entry->base;
         m_early_alloc_size = entry->length;
-        ASSERT((g_early_alloc_top % PAGE_SIZE) == 0);
+        ASSERT((m_early_alloc_top % PAGE_SIZE) == 0);
         ASSERT((m_early_alloc_size % PAGE_SIZE) == 0);
         return;
     }
@@ -79,9 +81,10 @@ void* early_phys_alloc_page() {
         early_alloc_find_next_entry();
     }
 
-    uintptr_t phys = g_early_alloc_top;
-    g_early_alloc_top += PAGE_SIZE;
+    uintptr_t phys = m_early_alloc_top;
+    m_early_alloc_top += PAGE_SIZE;
     m_early_alloc_size -= PAGE_SIZE;
+    m_early_alloc_page_count++;
 
     void* ptr = phys_to_direct(phys);
     memset(ptr, 0, PAGE_SIZE);
@@ -269,16 +272,20 @@ static void early_phys_add_memory() {
         uintptr_t base = entry->base;
         uintptr_t end = base + entry->length;
 
-        if (end < g_early_alloc_top) {
+        if (end < m_early_alloc_top) {
             continue;
         }
 
-        if (base < g_early_alloc_top) {
-            base = g_early_alloc_top;
+        if (base < m_early_alloc_top) {
+            base = m_early_alloc_top;
         }
 
         phys_add_memory(phys_to_direct(base), phys_to_direct(end));
     }
+
+    // the rest of the memory now belongs to the physical allocator, so the
+    // early allocations are final and can be accounted as committed
+    mem_acct_add_committed(m_early_alloc_page_count);
 }
 
 void early_virt_init(void) {
