@@ -48,7 +48,6 @@ static void arch_validate_required_cpu_features() {
     {
         CPUID_VERSION_INFO_ECX ecx;
         ASSERT(cpuid(CPUID_VERSION_INFO, nullptr, nullptr, &ecx.raw, nullptr));
-        ASSERT(ecx.RDRAND, "Missing RDRAND support");
 
         // x86-64-v3
         ASSERT(ecx.XSAVE, "Missing XSAVE support");
@@ -75,6 +74,7 @@ static void arch_validate_required_cpu_features() {
         ASSERT(ebx.AVX2, "Missing AVX2 support");
         ASSERT(ebx.BMI2, "Missing BMI2 support");
 
+        // Features unconditionally enabled by the kernel
         ASSERT(ebx.SMEP, "Missing SMEP support");
         ASSERT(ebx.SMAP, "Missing SMAP support");
         ASSERT(ecx.UMIP, "Missing UMIP support");
@@ -89,6 +89,7 @@ static void arch_validate_required_cpu_features() {
         ASSERT(ecx.LAHF_SAHF_64, "Missing LAHF_SAHF_64 support");
         ASSERT(ecx.LZCNT, "Missing LZCNT support");
 
+        // Features unconditionally enabled by the kernel
         ASSERT(edx.SYSCALL_SYSRET_64, "Missing SYSCALL_SYSRET_64 support");
         ASSERT(edx.EXECUTE_DIS, "Missing EXECUTE_DIS support");
     }

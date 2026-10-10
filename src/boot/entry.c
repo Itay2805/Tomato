@@ -1,11 +1,14 @@
 #include "boot/arch.h"
 #include "boot/mem.h"
+#include "boot/random.h"
+#include "boot/virt.h"
 #include "lib/assert.h"
 #include "lib/trace.h"
 #include "limine.h"
 #include "mem/phys.h"
 #include "util/sp.h"
 #include <immintrin.h>
+#include <stdint.h>
 
 /////////////////////////////////////////////////////////////////////////
 // Limine requests
@@ -53,32 +56,25 @@ static void bootloader_sanity() {
 
 [[clang::no_stack_protector]]
 static void init_stack_guard() {
-    for (int i = 0; i < 10; i++) {
-        unsigned long long val = 0;
-        if (_rdrand64_step(&val)) {
-            __stack_chk_guard = val;
-            return;
-        }
-    }
-
-    ASSERT(0, "Failed to initialize stack guard");
+    uint64_t value = boot_random_get(RANDOM_INDEX_STACK_CHK_GUARD);
+    value &= ~(uintptr_t)0xFF; // ensure string operations don't corrupt too much
+    __stack_chk_guard = value;
 }
 
 void _start() {
     TRACE("Tomato!");
     bootloader_sanity();
 
+    // setup the stack guard as soon as possible
+    init_stack_guard();
+
     // make sure we have all the required cpu features
     arch_set_required_cpu_features();
-
-    // setup the stack guard, the above function verifies
-    // we have support for rdrand
-    init_stack_guard();
 
     // early setup, this leaves us with our own page
     // tables and a working physical memory allocator
     // so we can continue
-    init_early_mem();
+    early_virt_init();
 
     TRACE("LOADED");
 

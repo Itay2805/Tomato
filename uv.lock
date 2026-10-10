@@ -4,27 +4,27 @@ requires-python = ">=3.14"
 
 [[package]]
 name = "bob-build"
-version = "0.1.8"
+version = "0.1.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ninja" },
     { name = "rich-click" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d2/61/099e3fcde9e117ab9dab07f37d2ba55a1a36caa74ce23452bf8bcf28cc78/bob_build-0.1.8.tar.gz", hash = "sha256:707d8e14ad127407e1fd7dc8c5e460549a961facade943f8544c4cab74479ef9", size = 19800, upload-time = "2026-08-19T07:00:56.385Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/88/ec/b28165d12c5f188c654b55db1a384d2671935a4dddb08f981d05f56ad86b/bob_build-0.1.11.tar.gz", hash = "sha256:8e14995ddaf4a9d6b6fc5738b673d4069cb828bfd29bee27e778bd9ca8751a7f", size = 20006, upload-time = "2026-10-06T05:42:59.897Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/46/0e/4165c83186ff345f8b004899e6739f4d818d2da932f07e4d4f3a30ee9c0d/bob_build-0.1.8-py3-none-any.whl", hash = "sha256:6d367a6890c6b01b8ecfd3ff9124fe029915e89f24913ba10449406d68d3ad21", size = 28903, upload-time = "2026-08-19T07:00:55.456Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/d1/d23827205be2d1a786c07c0601a3ee441e73b75615a487716c9d71c8e839/bob_build-0.1.11-py3-none-any.whl", hash = "sha256:ddcec0b9a3192b17df3af3eac412417a88e4bf1e1760898f66c76717903999f9", size = 29188, upload-time = "2026-10-06T05:42:58.926Z" },
 ]
 
 [[package]]
 name = "bobstd"
-version = "0.2.3"
+version = "0.2.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bob-build" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e2/b0/dee3b394f3b1296d066b81e4d00e6d02c0e38d6c09bc734e83d4f07be22c/bobstd-0.2.3.tar.gz", hash = "sha256:5dcedbb6ec33b41447e3b90168b474878ed05be12ff5e3fd88aba48ad4f1e9b6", size = 3105, upload-time = "2026-08-19T07:05:43.716Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4e/59/f9574ab0ef7ab5597881893b8822094ee52d8acea98d68e4ff5401cdb17c/bobstd-0.2.4.tar.gz", hash = "sha256:b82fa080a1a2d84f121f3f17460a639bf484e500bc421e32e5237c4020b53cb7", size = 3121, upload-time = "2026-10-06T05:42:47.607Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/84/db/b3f7685d87522a4f6b2eee72a75dbdd9835846434ff069bed5b4923aa3b5/bobstd-0.2.3-py3-none-any.whl", hash = "sha256:f169ba7d174a75a0dbe9fadfd4fa437a42c9d23162d92c95fd94b42e06f4117b", size = 4084, upload-time = "2026-08-19T07:05:42.831Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/98/b023f3dd76826e151a55f65a19daa5eafbe5061344f9a5390dccaeb931f3/bobstd-0.2.4-py3-none-any.whl", hash = "sha256:40162e564a40a48edbee4e07cda604e4ec48372e92e5ed1353849f1a0c8dde4b", size = 4103, upload-time = "2026-10-06T05:42:46.881Z" },
 ]
 
 [[package]]
@@ -125,16 +125,16 @@ wheels = [
 
 [[package]]
 name = "rich-click"
-version = "1.9.8"
+version = "1.9.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
     { name = "colorama", marker = "sys_platform == 'win32'" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f7/ea/21e4867ea0ef881ffd4c0550fc21a061435e50d6324bcd034396633cbc18/rich_click-1.9.8.tar.gz", hash = "sha256:4008f921da88b5d91646c134ec881c1500e5a6b3f093e90e8f29400e09608371", size = 75363, upload-time = "2026-05-28T19:54:59.144Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/96/3e/5688fdd83aea416de336582a274f2bc8236b5c261b04c11e17bc262786ad/rich_click-1.9.9.tar.gz", hash = "sha256:324cba7513cd4187ee92b2eef21f071714e45be062458c8b157bd7e0c81103e3", size = 75866, upload-time = "2026-09-05T19:20:14.799Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6d/97/a87901aef6b7e7e4a34c6dd6cc17dca8594a592ef9d9dd765fca2b7facf7/rich_click-1.9.8-py3-none-any.whl", hash = "sha256:12873865396e6927835d4eabb1cc3996edcd65b7ac9b2391a29eca4f335a2f93", size = 72189, upload-time = "2026-05-28T19:54:57.867Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/51/b2b91aec091e86bc961e5164f00207d89f133cc82b5ddad541d2132ea819/rich_click-1.9.9-py3-none-any.whl", hash = "sha256:365e7a9d0adb42e41ea832a0a12e02c44c079a26536dee688125eb9814f97274", size = 71910, upload-time = "2026-09-05T19:20:13.587Z" },
 ]
 
 [[package]]

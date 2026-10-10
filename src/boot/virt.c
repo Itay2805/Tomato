@@ -1,4 +1,5 @@
-#include "mem.h"
+#include "virt.h"
+
 #include "arch/intrin.h"
 #include "arch/virt.h"
 #include "lib/assert.h"
@@ -272,7 +273,7 @@ static void early_phys_add_memory() {
     }
 }
 
-void init_early_mem(void) {
+void early_virt_init(void) {
     // initialize the basic regions
     int levels = init_kernel_region();
     init_direct_map();
@@ -300,6 +301,7 @@ void init_early_mem(void) {
 
     // now initialize the buddy allocator bitmap
     // and add all physical memory to it
+    // yes this is technically not part of virt init but its close enough
     early_create_buddy_bitmap(table, levels);
     early_phys_add_memory();
 }
