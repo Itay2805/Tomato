@@ -295,6 +295,10 @@ static void early_phys_add_memory(void) {
     mem_acct_add_committed(m_early_alloc_page_count);
 }
 
+void early_virt_switch_table(void) {
+    __writecr3(direct_to_phys(m_page_table));
+}
+
 void early_virt_init(void) {
     // initialize the basic regions
     m_page_table_levels = init_kernel_region();
@@ -307,7 +311,7 @@ void early_virt_init(void) {
     early_map_kernel();
     early_map_direct_map();
     // TODO: create kasan range
-    __writecr3(direct_to_phys(m_page_table));
+    early_virt_switch_table();
 
     // we now have kasan and can finalize the early
     // memory init

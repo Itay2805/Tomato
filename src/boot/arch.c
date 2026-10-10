@@ -3,6 +3,7 @@
 #include "arch/intrin.h"
 #include "arch/msr.h"
 #include "boot/gdt.h"
+#include "boot/virt.h"
 #include "lib/assert.h"
 #include "mem/phys.h"
 #include "util/defs.h"
@@ -121,5 +122,16 @@ void arch_early_init(void) {
 
 void arch_init(void) {
     // setup the gdt for the current core
+    gdt_init();
+}
+
+void arch_init_per_core(void) {
+    // setup all the cpu features first
+    arch_early_init();
+
+    // switch to the real page table now
+    early_virt_switch_table();
+
+    // set the gdt
     gdt_init();
 }

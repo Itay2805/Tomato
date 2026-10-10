@@ -32,7 +32,7 @@ typedef struct [[gnu::packed]] gdt {
 static irq_spinlock_t m_tss_lock;
 
 /**
- * The TSS, we only have one for now
+ * The TSS, for now it is shared by all the cores
  */
 static tss64_t m_tss;
 

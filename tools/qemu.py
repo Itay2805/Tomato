@@ -13,6 +13,8 @@ QEMU_FLAGS = [
     "--enable-kvm",
     "-cpu",
     "host",
+    "-smp",
+    "4",
     "-m",
     "512M",
     "-debugcon",
