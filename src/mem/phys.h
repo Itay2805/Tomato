@@ -4,16 +4,15 @@
 #include <stddef.h>
 
 /**
- * How many levels of buddy we are holding
+ * How many levels of buddy we are holding, 64 bytes up to 2mb
  */
-#define PHYS_BUDDY_MAX_LEVEL 10
+#define PHYS_BUDDY_MAX_LEVEL 16
 
 /**
- * The minimum size that the physical allocator can allocate, this is
- * a page size, for smaller than page allocation use the normal memory
- * allocator
+ * The minimum size that the physical allocator can allocate, this is 64 bytes
+ * so small physically contiguous structures don't need a full page
  */
-#define PHYS_BUDDY_MIN_ORDER PAGE_SHIFT
+#define PHYS_BUDDY_MIN_ORDER 6
 #define PHYS_BUDDY_MIN_SIZE  (1UL << PHYS_BUDDY_MIN_ORDER)
 
 /**

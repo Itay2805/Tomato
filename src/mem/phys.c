@@ -1,33 +1,30 @@
 #include "phys.h"
 #include "lib/assert.h"
-#include "lib/list.h"
+#include "lib/hlist.h"
 #include "lib/string.h"
 #include "mem/mapping.h"
 #include "sync/mutex.h"
 #include "util/except.h"
 
 typedef struct buddy_free_page {
-    list_entry_t entry;
+    hlist_node_t node;
     uint8_t level;
 } buddy_free_page_t;
 
-typedef struct buddy_level {
-    list_t freelist;
-} buddy_level_t;
+// the header is stored inside of the free block, so even the smallest block must fit it
+static_assert(sizeof(buddy_free_page_t) <= PHYS_BUDDY_MIN_SIZE);
 
-static buddy_level_t m_phys_buddy_levels[PHYS_BUDDY_MAX_LEVEL] = {
-    [0] = { .freelist = LIST_INIT(m_phys_buddy_levels[0].freelist) },
-    [1] = { .freelist = LIST_INIT(m_phys_buddy_levels[1].freelist) },
-    [2] = { .freelist = LIST_INIT(m_phys_buddy_levels[2].freelist) },
-    [3] = { .freelist = LIST_INIT(m_phys_buddy_levels[3].freelist) },
-    [4] = { .freelist = LIST_INIT(m_phys_buddy_levels[4].freelist) },
-    [5] = { .freelist = LIST_INIT(m_phys_buddy_levels[5].freelist) },
-    [6] = { .freelist = LIST_INIT(m_phys_buddy_levels[6].freelist) },
-    [7] = { .freelist = LIST_INIT(m_phys_buddy_levels[7].freelist) },
-    [8] = { .freelist = LIST_INIT(m_phys_buddy_levels[8].freelist) },
-    [9] = { .freelist = LIST_INIT(m_phys_buddy_levels[9].freelist) },
-};
+// the level is stored in a byte in the header
+static_assert(PHYS_BUDDY_MAX_LEVEL <= UINT8_MAX + 1);
 
+/**
+ * All the different levels of the buddy allocator
+ */
+static hlist_t m_phys_buddy_levels[PHYS_BUDDY_MAX_LEVEL] = {};
+
+/**
+ * Protects the buddy allocator lists
+ */
 static mutex_t m_phys_buddy_lock = {};
 
 static int get_level_by_size(size_t size) {
@@ -39,31 +36,31 @@ static int get_level_by_size(size_t size) {
         size = PHYS_BUDDY_MIN_SIZE;
     }
 
-    size = 1 << (32 - __builtin_clz(size - 1));
-    int level = 32 - __builtin_clz(size) - 1;
-    return level - PHYS_BUDDY_MIN_ORDER;
+    // the order of the size rounded up to the next power of two
+    int order = 64 - __builtin_clzll(size - 1);
+    return order - PHYS_BUDDY_MIN_ORDER;
 }
 
 static bool buddy_is_block_free(void* ptr) {
-    uintptr_t addr = direct_to_phys(ptr);
-    size_t index = (addr / PAGE_SIZE) / 8;
-    size_t shift = (addr / PAGE_SIZE) % 8;
+    uintptr_t addr = direct_to_phys(ptr) >> PHYS_BUDDY_MIN_ORDER;
+    size_t index = addr / 8;
+    size_t shift = addr % 8;
     uint8_t* const buddy_bitmap = g_buddy_bitmap_mapping.base;
     return (buddy_bitmap[index] >> shift) & 1;
 }
 
 static void buddy_set_block_allocated(void* ptr) {
-    uintptr_t addr = direct_to_phys(ptr);
-    size_t index = (addr / PAGE_SIZE) / 8;
-    size_t shift = (addr / PAGE_SIZE) % 8;
+    uintptr_t addr = direct_to_phys(ptr) >> PHYS_BUDDY_MIN_ORDER;
+    size_t index = addr / 8;
+    size_t shift = addr % 8;
     uint8_t* const buddy_bitmap = g_buddy_bitmap_mapping.base;
     buddy_bitmap[index] &= ~(1U << shift);
 }
 
 static void buddy_set_block_free(void* ptr) {
-    uintptr_t addr = direct_to_phys(ptr);
-    size_t index = (addr / PAGE_SIZE) / 8;
-    size_t shift = (addr / PAGE_SIZE) % 8;
+    uintptr_t addr = direct_to_phys(ptr) >> PHYS_BUDDY_MIN_ORDER;
+    size_t index = addr / 8;
+    size_t shift = addr % 8;
     uint8_t* const buddy_bitmap = g_buddy_bitmap_mapping.base;
     buddy_bitmap[index] |= 1U << shift;
 }
@@ -81,15 +78,15 @@ void* phys_alloc(size_t size) {
     int block_at_level = 0;
     void* block = NULL;
     for (block_at_level = level; block_at_level < PHYS_BUDDY_MAX_LEVEL; block_at_level++) {
-        list_t* freelist = &m_phys_buddy_levels[block_at_level].freelist;
-        if (!list_empty(freelist)) {
-            buddy_free_page_t* page = list_first_entry(freelist, buddy_free_page_t, entry);
+        hlist_t* freelist = &m_phys_buddy_levels[block_at_level];
+        if (!hlist_empty(freelist)) {
+            buddy_free_page_t* page = hlist_entry(freelist->first, buddy_free_page_t, node);
             ASSERT(page->level == block_at_level);
 
             // we want to zero the free page header
             // so the entire block ends up being zeroed
             // (we already zero on free)
-            list_del(&page->entry);
+            hlist_del(&page->node);
             *page = (buddy_free_page_t){};
 
             block = page;
@@ -108,7 +105,7 @@ void* phys_alloc(size_t size) {
             // add the upper part of the page to the bottom freelist
             buddy_free_page_t* upper = block + block_size / 2;
             upper->level = block_at_level;
-            list_add(&m_phys_buddy_levels[block_at_level].freelist, &upper->entry);
+            hlist_add(&m_phys_buddy_levels[block_at_level], &upper->node);
             buddy_set_block_free(upper);
         }
 
@@ -149,8 +146,10 @@ static void phys_free_internal(void* ptr, int level, bool check_allocated) {
             break;
         }
 
-        // remove it from the freelist
-        list_del(&neighbor->entry);
+        // remove it from the freelist, and zero its header since it
+        // ends up in the middle of the merged block
+        hlist_del(&neighbor->node);
+        *neighbor = (buddy_free_page_t){};
 
         // if the neighbor is from the bottom
         // then merge with it from the bottom
@@ -165,7 +164,7 @@ static void phys_free_internal(void* ptr, int level, bool check_allocated) {
     // we merged it as much as we can, add to the freelist
     buddy_free_page_t* block = ptr;
     block->level = level;
-    list_add(&m_phys_buddy_levels[level].freelist, &block->entry);
+    hlist_add(&m_phys_buddy_levels[level], &block->node);
     buddy_set_block_free(block);
 }
 

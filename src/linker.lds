@@ -18,6 +18,9 @@ SECTIONS
 {
     . = 0xffffffff80000000;
 
+    . = ALIGN(CONSTANT(MAXPAGESIZE));
+    __limine_requests_start = .;
+
     /*
      * Define a section to contain the Limine requests and assign
      * it to its own PHDR
@@ -29,6 +32,7 @@ SECTIONS
     } :limine_requests
 
     . = ALIGN(CONSTANT(MAXPAGESIZE));
+    __limine_requests_page_count = (. - __limine_requests_start) / CONSTANT(MAXPAGESIZE);
     __init_text_start = .;
 
     .init.text : {

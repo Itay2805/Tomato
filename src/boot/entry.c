@@ -1,5 +1,4 @@
 #include "boot/arch.h"
-#include "boot/mem.h"
 #include "boot/random.h"
 #include "boot/virt.h"
 #include "lib/assert.h"

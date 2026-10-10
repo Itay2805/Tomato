@@ -193,6 +193,7 @@ static void early_map_vmar(void* table, int levels, vmar_t* vmar, vm_perm_t perm
 
 static void early_map_kernel(void* table, int levels) {
     TRACE("Mapping kernel");
+    early_map_vmar(table, levels, &g_kernel_limine_requests_mapping, VM_PERM_RO);
     early_map_vmar(table, levels, &g_kernel_init_text_mapping, VM_PERM_RX);
     early_map_vmar(table, levels, &g_kernel_init_rodata_mapping, VM_PERM_RO);
     early_map_vmar(table, levels, &g_kernel_init_data_mapping, VM_PERM_RW);
@@ -214,7 +215,11 @@ static void early_map_direct_map(void* table, int levels) {
 }
 
 static void early_create_buddy_bitmap(void* table, int levels) {
-    size_t bitmap_page_count = DIV_ROUND_UP(DIV_ROUND_UP(g_direct_map.page_count, 8), PAGE_SIZE);
+    // the bitmap has a bit per min sized block, and the buddy of a block is always
+    // within the same max sized block, so cover up to the end of the last max sized block
+    uintptr_t top = ALIGN_UP(g_direct_map.page_count * PAGE_SIZE, PHYS_BUDDY_MAX_SIZE);
+    size_t bitmap_page_count =
+        DIV_ROUND_UP(DIV_ROUND_UP(top >> PHYS_BUDDY_MIN_ORDER, 8), PAGE_SIZE);
     ASSERT_SUCCESS(vmar_allocate_static(&g_kernel_region, &g_buddy_bitmap_mapping, VMAR_ANY_OFFSET,
                                         bitmap_page_count));
 
@@ -226,14 +231,17 @@ static void early_create_buddy_bitmap(void* table, int levels) {
             continue;
         }
 
-        // calculate the bitmap range that we need to allocate
-        size_t bitmap_start = ALIGN_DOWN((entry->base / PAGE_SIZE) / 8, PAGE_SIZE);
-        size_t bitmap_size = ALIGN_UP(DIV_ROUND_UP(entry->length / PAGE_SIZE, 8), PAGE_SIZE);
+        // calculate the bitmap range that we need to allocate, we cover entire max sized
+        // blocks so merging with a buddy outside the entry never touches an unmapped page
+        uintptr_t start = ALIGN_DOWN(entry->base, PHYS_BUDDY_MAX_SIZE);
+        uintptr_t end = ALIGN_UP(entry->base + entry->length, PHYS_BUDDY_MAX_SIZE);
+        size_t bitmap_start = ALIGN_DOWN((start >> PHYS_BUDDY_MIN_ORDER) / 8, PAGE_SIZE);
+        size_t bitmap_end = ALIGN_UP(DIV_ROUND_UP(end >> PHYS_BUDDY_MIN_ORDER, 8), PAGE_SIZE);
 
         // map the entire bitmap right now
         void* bitmap_ptr = g_buddy_bitmap_mapping.base + bitmap_start;
-        void* bitmap_end = g_buddy_bitmap_mapping.base + bitmap_start + bitmap_size;
-        for (; bitmap_ptr < bitmap_end; bitmap_ptr += PAGE_SIZE) {
+        void* bitmap_end_ptr = g_buddy_bitmap_mapping.base + bitmap_end;
+        for (; bitmap_ptr < bitmap_end_ptr; bitmap_ptr += PAGE_SIZE) {
             uint64_t* pte = early_virt_get_pte(table, levels, bitmap_ptr);
             if (*pte & IA32_PG_P) {
                 continue;
@@ -292,6 +300,7 @@ void early_virt_init(void) {
 
     // now with the new page table finialize the
     vmar_link(&g_kernel_region, &g_direct_map);
+    vmar_link(&g_kernel_region, &g_kernel_limine_requests_mapping);
     vmar_link(&g_kernel_region, &g_kernel_init_text_mapping);
     vmar_link(&g_kernel_region, &g_kernel_init_rodata_mapping);
     vmar_link(&g_kernel_region, &g_kernel_init_data_mapping);

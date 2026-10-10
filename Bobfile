@@ -120,11 +120,17 @@ else:
         [
             # Optimizations and full lto please
             "-O3",
-            "-flto",
             # Frame pointers are not needed
             "-fomit-frame-pointer",
             # Zero init all stack variables
             "-ftrivial-auto-var-init=zero",
+        ]
+    )
+
+    c.ldflags.add(
+        [
+            # Make sure we have the max optimization level with lto
+            "-Wl,--lto-O3",
         ]
     )
 
@@ -146,10 +152,17 @@ boot_code = c.static_library_bundle(
 #
 # The kernel code, it builds with kasan
 #
-kernel_code = c.static_library_bundle(
-    name="kernel",
-    sources=sources,
-)
+with c.cflags.add(
+    [
+        # We only want the core kernel to have lto, we need the
+        # boot code to not have lto so it can be linked properly
+        "-flto",
+    ]
+):
+    kernel_code = c.static_library_bundle(
+        name="kernel",
+        sources=sources,
+    )
 
 # The kernel itself
 kernel = c.binary(
