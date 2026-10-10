@@ -138,6 +138,9 @@ static void init_direct_map() {
 // Generic early utilities for page table manipulation
 //
 
+static void* m_page_table = nullptr;
+static size_t m_page_table_levels = 0;
+
 static uint64_t* early_virt_get_next_level(uint64_t* entry) {
     if ((*entry & IA32_PG_P) == 0) {
         void* phys = early_phys_alloc_page();
@@ -146,8 +149,10 @@ static uint64_t* early_virt_get_next_level(uint64_t* entry) {
     return phys_to_direct(*entry & PAGING_4K_ADDRESS_MASK);
 }
 
-static uint64_t* early_virt_get_pte(uint64_t* table, int levels, void* virt) {
-    for (int i = levels - 1; i >= 0; i--) {
+static uint64_t* early_virt_get_pte(void* virt) {
+    uint64_t* table = m_page_table;
+
+    for (int i = m_page_table_levels - 1; i >= 0; i--) {
         size_t shift = PAGING_INDEX_BITS * i + PAGE_SHIFT;
         size_t index = ((uintptr_t)virt >> shift) & PAGING_INDEX_MASK;
 
@@ -164,16 +169,15 @@ static uint64_t* early_virt_get_pte(uint64_t* table, int levels, void* virt) {
     __builtin_unreachable();
 }
 
-static void early_virt_map(uint64_t* table, int levels, void* virt, uint64_t phys, size_t num_pages,
-                           uint64_t flags) {
+static void early_virt_map(void* virt, uint64_t phys, size_t num_pages, uint64_t flags) {
     for (; num_pages != 0; num_pages--, virt += PAGE_SIZE, phys += PAGE_SIZE) {
-        uint64_t* pte = early_virt_get_pte(table, levels, virt);
+        uint64_t* pte = early_virt_get_pte(virt);
         ASSERT(*pte == 0);
         *pte = phys | IA32_PG_P | IA32_PG_A | flags;
     }
 }
 
-static void early_map_vmar(void* table, int levels, vmar_t* vmar, vm_perm_t perms) {
+static void early_map_vmar(vmar_t* vmar, vm_perm_t perms) {
     ASSERT(g_executable_address.response != nullptr);
     uint64_t phys_base = g_executable_address.response->physical_base;
     void* virt_base = (void*)g_executable_address.response->virtual_base;
@@ -191,34 +195,34 @@ static void early_map_vmar(void* table, int levels, vmar_t* vmar, vm_perm_t perm
     if (perms != VM_PERM_RX) {
         flags |= IA32_PG_NX;
     }
-    early_virt_map(table, levels, vmar->base, phys_addr, vmar->page_count, flags);
+    early_virt_map(vmar->base, phys_addr, vmar->page_count, flags);
 }
 
-static void early_map_kernel(void* table, int levels) {
+static void early_map_kernel() {
     TRACE("Mapping kernel");
-    early_map_vmar(table, levels, &g_kernel_limine_requests_mapping, VM_PERM_RO);
-    early_map_vmar(table, levels, &g_kernel_init_text_mapping, VM_PERM_RX);
-    early_map_vmar(table, levels, &g_kernel_init_rodata_mapping, VM_PERM_RO);
-    early_map_vmar(table, levels, &g_kernel_init_data_mapping, VM_PERM_RW);
-    early_map_vmar(table, levels, &g_kernel_text_mapping, VM_PERM_RX);
-    early_map_vmar(table, levels, &g_kernel_rodata_mapping, VM_PERM_RO);
-    early_map_vmar(table, levels, &g_kernel_late_rodata_mapping, VM_PERM_RW);
-    early_map_vmar(table, levels, &g_kernel_data_mapping, VM_PERM_RW);
+    early_map_vmar(&g_kernel_limine_requests_mapping, VM_PERM_RO);
+    early_map_vmar(&g_kernel_init_text_mapping, VM_PERM_RX);
+    early_map_vmar(&g_kernel_init_rodata_mapping, VM_PERM_RO);
+    early_map_vmar(&g_kernel_init_data_mapping, VM_PERM_RW);
+    early_map_vmar(&g_kernel_text_mapping, VM_PERM_RX);
+    early_map_vmar(&g_kernel_rodata_mapping, VM_PERM_RO);
+    early_map_vmar(&g_kernel_late_rodata_mapping, VM_PERM_RW);
+    early_map_vmar(&g_kernel_data_mapping, VM_PERM_RW);
 }
 
-static void early_map_direct_map(void* table, int levels) {
+static void early_map_direct_map() {
     for (size_t i = 0; i < m_memmap_request.response->entry_count; i++) {
         struct limine_memmap_entry* entry = m_memmap_request.response->entries[i];
         if (entry->type != LIMINE_MEMMAP_USABLE &&
             entry->type != LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE) {
             continue;
         }
-        early_virt_map(table, levels, phys_to_direct(entry->base), entry->base,
-                       entry->length / PAGE_SIZE, IA32_PG_RW | IA32_PG_D | IA32_PG_NX);
+        early_virt_map(phys_to_direct(entry->base), entry->base, entry->length / PAGE_SIZE,
+                       IA32_PG_RW | IA32_PG_D | IA32_PG_NX);
     }
 }
 
-static void early_create_buddy_bitmap(void* table, int levels) {
+static void early_create_buddy_bitmap() {
     // the bitmap has a bit per min sized block, and the buddy of a block is always
     // within the same max sized block, so cover up to the end of the last max sized block
     uintptr_t top = ALIGN_UP(g_direct_map.page_count * PAGE_SIZE, PHYS_BUDDY_MAX_SIZE);
@@ -246,7 +250,7 @@ static void early_create_buddy_bitmap(void* table, int levels) {
         void* bitmap_ptr = g_buddy_bitmap_mapping.base + bitmap_start;
         void* bitmap_end_ptr = g_buddy_bitmap_mapping.base + bitmap_end;
         for (; bitmap_ptr < bitmap_end_ptr; bitmap_ptr += PAGE_SIZE) {
-            uint64_t* pte = early_virt_get_pte(table, levels, bitmap_ptr);
+            uint64_t* pte = early_virt_get_pte(bitmap_ptr);
             if (*pte & IA32_PG_P) {
                 continue;
             }
@@ -289,19 +293,23 @@ static void early_phys_add_memory() {
     mem_acct_add_committed(m_early_alloc_page_count);
 }
 
+void early_virt_switch_table() {
+    __writecr3(direct_to_phys(m_page_table));
+}
+
 void early_virt_init(void) {
     // initialize the basic regions
-    int levels = init_kernel_region();
+    m_page_table_levels = init_kernel_region();
     init_direct_map();
 
     // map the kernel and direct map, don't link
     // them to the vmar tree yet, because we want
     // to avoid code that will use kasan
-    void* table = early_phys_alloc_page();
-    early_map_kernel(table, levels);
-    early_map_direct_map(table, levels);
+    m_page_table = early_phys_alloc_page();
+    early_map_kernel();
+    early_map_direct_map();
     // TODO: create kasan range
-    __writecr3(direct_to_phys(table));
+    early_virt_switch_table();
 
     // we now have kasan and can finalize the early
     // memory init
@@ -320,6 +328,6 @@ void early_virt_init(void) {
     // now initialize the buddy allocator bitmap
     // and add all physical memory to it
     // yes this is technically not part of virt init but its close enough
-    early_create_buddy_bitmap(table, levels);
+    early_create_buddy_bitmap();
     early_phys_add_memory();
 }

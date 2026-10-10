@@ -2,6 +2,7 @@
 #include "arch/gdt.h"
 #include "lib/assert.h"
 #include "mem/phys.h"
+#include "sync/smp.h"
 #include "sync/spinlock.h"
 #include "util/defs.h"
 
@@ -49,7 +50,6 @@ typedef struct [[gnu::packed]] gdt {
  * group is a run of TSSs followed by the iopb they share
  */
 static void* m_tss_base = nullptr;
-static size_t m_tss_count = 0;
 static size_t m_tss_per_group = 0;
 static size_t m_tss_group_size = 0;
 
@@ -66,20 +66,20 @@ static tss64_t* tss_get(size_t index) {
     return m_tss_base + group * m_tss_group_size + slot * TSS_STRIDE;
 }
 
-void tss_alloc(size_t cpu_count) {
-    ASSERT(cpu_count > 0);
+void tss_alloc() {
+    ASSERT(g_cpu_count > 0);
 
     // use as few groups as we can, and spread the cores evenly
     // between them so each group is as small as possible
-    size_t group_count = DIV_ROUND_UP(cpu_count, TSS_PER_IOPB_MAX);
-    size_t per_group = DIV_ROUND_UP(cpu_count, group_count);
+    size_t group_count = DIV_ROUND_UP(g_cpu_count, TSS_PER_IOPB_MAX);
+    size_t per_group = DIV_ROUND_UP(g_cpu_count, group_count);
 
     // the next group must start aligned to the stride as well
     size_t group_size = ALIGN_UP(per_group * TSS_STRIDE + IOPB_SIZE, TSS_STRIDE);
     size_t total_size = group_count * group_size;
 
     void* base = phys_alloc(total_size);
-    ASSERT(base != NULL, "gdt: failed to allocate %lu TSSs (0x%lx bytes)", cpu_count, total_size);
+    ASSERT(base != NULL, "gdt: failed to allocate %lu TSSs (0x%lx bytes)", g_cpu_count, total_size);
 
     for (size_t i = 0; i < group_count; i++) {
         void* group = base + i * group_size;
@@ -96,7 +96,6 @@ void tss_alloc(size_t cpu_count) {
     }
 
     m_tss_base = base;
-    m_tss_count = cpu_count;
     m_tss_per_group = per_group;
     m_tss_group_size = group_size;
 }
@@ -104,7 +103,7 @@ void tss_alloc(size_t cpu_count) {
 static void tss_init() {
     irq_spinlock_guard(&m_tss_lock);
 
-    ASSERT(m_tss_next < m_tss_count, "gdt: no TSS left for this core");
+    ASSERT(m_tss_next < g_cpu_count, "gdt: no TSS left for this core");
     tss64_t* tss = tss_get(m_tss_next++);
 
     // the limit must cover the iopb, which is past 16 bits for most of the TSSs

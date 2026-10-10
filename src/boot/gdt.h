@@ -2,6 +2,6 @@
 
 #include <stddef.h>
 
-void tss_alloc(size_t cpu_count);
+void tss_alloc();
 
 void gdt_init();

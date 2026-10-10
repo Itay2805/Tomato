@@ -6,6 +6,11 @@
 void arch_early_init();
 
 /**
- * Per-arch initialization
+ * Arch initialization
  */
 void arch_init();
+
+/**
+ * Arch init per-core, not needed on the BSP
+ */
+void arch_init_per_core();
