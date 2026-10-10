@@ -32,14 +32,16 @@ vmar_t g_buddy_bitmap_mapping = {
         .kind = VMAR_KIND_SPECIAL,                                                                 \
     };
 
-KERNEL_REGION(text);
-KERNEL_REGION(rodata);
-KERNEL_REGION(data);
-
 KERNEL_REGION(limine_requests);
+
 KERNEL_REGION(init_text);
 KERNEL_REGION(init_rodata);
 KERNEL_REGION(init_data);
+
+KERNEL_REGION(text);
+KERNEL_REGION(rodata);
+KERNEL_REGION(late_rodata);
+KERNEL_REGION(data);
 
 vmar_t g_user_region = {
     .name = "user",

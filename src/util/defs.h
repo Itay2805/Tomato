@@ -10,6 +10,22 @@
 #define ALIGN_UP(x, align)   __builtin_align_up(x, align)
 #define ALIGN_DOWN(x, align) __builtin_align_down(x, align)
 
+/**
+ * Mark function as init code, it will get deleted once kernel init is done
+ */
+#define INIT_CODE [[gnu::section(".init.text")]]
+
+/**
+ * Mark variable as init data, it will get deleted once kernel init is done
+ */
+#define INIT_DATA [[gnu::section(".init.data")]]
+
+/**
+ * Mark variable as late read-only, it will get turned into read-only once
+ * kernel init is done
+ */
+#define LATE_RO [[gnu::section(".late.rodata")]]
+
 #define BIT0  0x00000001
 #define BIT1  0x00000002
 #define BIT2  0x00000004

@@ -2,6 +2,7 @@
 #include "arch/cpuid.h"
 #include "arch/intrin.h"
 #include "arch/msr.h"
+#include "boot/gdt.h"
 #include "lib/assert.h"
 #include "mem/phys.h"
 #include "util/defs.h"
@@ -44,7 +45,9 @@
 #define CR4_PKS        BIT24
 #define CR4_UINTR      BIT25
 
-static void arch_validate_required_cpu_features() {
+static uint32_t arch_validate_required_cpu_features() {
+    uint32_t cr4 = 0;
+
     {
         CPUID_VERSION_INFO_ECX ecx;
         ASSERT(cpuid(CPUID_VERSION_INFO, nullptr, nullptr, &ecx.raw, nullptr));
@@ -69,59 +72,61 @@ static void arch_validate_required_cpu_features() {
         ASSERT(cpuid_count(CPUID_STRUCTURED_EXTENDED_FEATURE_FLAGS,
                            CPUID_STRUCTURED_EXTENDED_FEATURE_FLAGS_SUB_LEAF_INFO, nullptr, &ebx.raw,
                            &ecx.raw, nullptr));
+
         // x86-64-v3
         ASSERT(ebx.BMI1, "Missing BMI1 support");
         ASSERT(ebx.AVX2, "Missing AVX2 support");
         ASSERT(ebx.BMI2, "Missing BMI2 support");
 
-        // Features unconditionally enabled by the kernel
-        ASSERT(ebx.SMEP, "Missing SMEP support");
+        // Features unconditionally used by the kernel
         ASSERT(ebx.SMAP, "Missing SMAP support");
-        ASSERT(ecx.UMIP, "Missing UMIP support");
         ASSERT(ebx.INVPCID, "Missing INVPCID support");
+
+        // Features that are optional
+        if (ebx.SMEP)
+            cr4 |= CR4_SMEP;
+        if (ecx.UMIP)
+            cr4 |= CR4_UMIP;
     }
 
     {
         CPUID_EXTENDED_CPU_SIG_ECX ecx;
         CPUID_EXTENDED_CPU_SIG_EDX edx;
         ASSERT(cpuid(CPUID_EXTENDED_CPU_SIG, nullptr, nullptr, &ecx.raw, &edx.raw));
+
         // x86-64-v3
         ASSERT(ecx.LAHF_SAHF_64, "Missing LAHF_SAHF_64 support");
         ASSERT(ecx.LZCNT, "Missing LZCNT support");
 
-        // Features unconditionally enabled by the kernel
+        // Features unconditionally used by the kernel
         ASSERT(edx.SYSCALL_SYSRET_64, "Missing SYSCALL_SYSRET_64 support");
         ASSERT(edx.EXECUTE_DIS, "Missing EXECUTE_DIS support");
     }
+
+    return cr4;
 }
 
-void arch_set_required_cpu_features() {
-    arch_validate_required_cpu_features();
+void arch_early_init() {
+    uint32_t cr4 = arch_validate_required_cpu_features();
 
-    // PG/PE - required for long mode
-    // MP - required for SSE
-    // WP - write protections
     __writecr0(CR0_PG | CR0_PE | CR0_MP | CR0_WP);
 
-    // PAE - required for long mode
-    // PGE - support for global pages
-    // OSFXSR/OSXMMEXCPT - required for SSE
-    // XSAVE - using xsave
-    // SMAP/SMEP - prevent kernel from accessing usermode memory
-    // UMIP - prevent usermode from leaking kernel memory
-    uint32_t cr4 = 0;
     cr4 |= CR4_PAE;
     cr4 |= CR4_PGE;
-    cr4 |= CR4_OSFXSR | CR4_OSXSAVE | CR4_OSXMMEXCPT;
-    cr4 |= CR4_SMAP | CR4_SMEP;
-    cr4 |= CR4_UMIP;
+    cr4 |= CR4_OSFXSR | CR4_OSXMMEXCPT;
+    cr4 |= CR4_OSXSAVE;
+    cr4 |= CR4_SMAP;
     __writecr4(cr4);
 
-    // setup the efer
-    // NXE - Enable NX bit
-    // SCE - Enable syscall/sysret opcodes
     MSR_IA32_EFER_REGISTER efer = { .packed = __rdmsr(MSR_IA32_EFER) };
     efer.nxe = 1;
     efer.sce = 1;
     __wrmsr(MSR_IA32_EFER, efer.packed);
+}
+
+void arch_init() {
+    // allocate the tss for all the cores
+    // and then set the gdt for our boot core
+    tss_alloc(1);
+    gdt_init();
 }

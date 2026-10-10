@@ -1,3 +1,11 @@
 #pragma once
 
-void arch_set_required_cpu_features();
+/**
+ * Early per-arch initialization
+ */
+void arch_early_init();
+
+/**
+ * Per-arch initialization
+ */
+void arch_init();

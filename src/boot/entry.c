@@ -4,10 +4,6 @@
 #include "lib/assert.h"
 #include "lib/trace.h"
 #include "limine.h"
-#include "mem/accounting.h"
-#include "mem/mapping.h"
-#include "mem/phys.h"
-#include "mem/vmar.h"
 #include "util/sp.h"
 #include <immintrin.h>
 #include <stdint.h>
@@ -71,12 +67,15 @@ void _start() {
     init_stack_guard();
 
     // make sure we have all the required cpu features
-    arch_set_required_cpu_features();
+    arch_early_init();
 
     // early setup, this leaves us with our own page
     // tables and a working physical memory allocator
     // so we can continue
     early_virt_init();
+
+    // finalize arch init
+    arch_init();
 
     TRACE("LOADED");
 
