@@ -208,6 +208,7 @@ static void early_map_kernel(void) {
     early_map_vmar(&g_kernel_init_data_mapping, VM_PERM_RW);
     early_map_vmar(&g_kernel_text_mapping, VM_PERM_RX);
     early_map_vmar(&g_kernel_rodata_mapping, VM_PERM_RO);
+    early_map_vmar(&g_kernel_late_rodata_mapping, VM_PERM_RW);
     early_map_vmar(&g_kernel_data_mapping, VM_PERM_RW);
 }
 
@@ -319,6 +320,7 @@ void early_virt_init(void) {
     vmar_link(&g_kernel_region, &g_kernel_init_data_mapping);
     vmar_link(&g_kernel_region, &g_kernel_text_mapping);
     vmar_link(&g_kernel_region, &g_kernel_rodata_mapping);
+    vmar_link(&g_kernel_region, &g_kernel_late_rodata_mapping);
     vmar_link(&g_kernel_region, &g_kernel_data_mapping);
 
     // now initialize the buddy allocator bitmap

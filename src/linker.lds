@@ -72,6 +72,14 @@ SECTIONS
 
     . = ALIGN(CONSTANT(MAXPAGESIZE));
     __rodata_page_count = (. - __rodata_start) / CONSTANT(MAXPAGESIZE);
+    __late_rodata_start = .;
+
+    .late.rodata : {
+        *(.late.rodata .late.rodata.*)
+    } :data
+
+    . = ALIGN(CONSTANT(MAXPAGESIZE));
+    __late_rodata_page_count = (. - __late_rodata_start) / CONSTANT(MAXPAGESIZE);
     __data_start = .;
 
     .data : {

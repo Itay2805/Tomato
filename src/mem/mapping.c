@@ -40,6 +40,7 @@ KERNEL_REGION(init_data);
 
 KERNEL_REGION(text);
 KERNEL_REGION(rodata);
+KERNEL_REGION(late_rodata);
 KERNEL_REGION(data);
 
 vmar_t g_user_region = {

@@ -2,6 +2,7 @@
 #include "arch/cpuid.h"
 #include "arch/intrin.h"
 #include "arch/msr.h"
+#include "boot/gdt.h"
 #include "lib/assert.h"
 #include "mem/phys.h"
 #include "util/defs.h"
@@ -116,4 +117,9 @@ void arch_early_init(void) {
     efer.nxe = 1;
     efer.sce = 1;
     __wrmsr(MSR_IA32_EFER, efer.packed);
+}
+
+void arch_init(void) {
+    // setup the gdt for the current core
+    gdt_init();
 }

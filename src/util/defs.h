@@ -23,6 +23,12 @@
  */
 #define INIT_DATA [[gnu::section(".init.data")]]
 
+/**
+ * Mark variable as late read-only, it will get turned into read-only once
+ * kernel init is done
+ */
+#define LATE_RO [[gnu::section(".late.rodata")]]
+
 #define BIT0  0x00000001
 #define BIT1  0x00000002
 #define BIT2  0x00000004

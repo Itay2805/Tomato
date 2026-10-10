@@ -79,6 +79,9 @@ void _start(void) {
     // so we can continue
     early_virt_init();
 
+    // finalize arch init
+    arch_init();
+
     TRACE("DONE!");
 
     // TODO: continue the rest of the init
