@@ -6,6 +6,7 @@
 #include "lib/string.h"
 #include "lib/trace.h"
 #include "limine.h"
+#include "mem/accounting.h"
 #include "mem/mapping.h"
 #include "mem/phys.h"
 #include "mem/vmar.h"
@@ -45,6 +46,7 @@ static volatile struct limine_memmap_request m_memmap_request = { .id = LIMINE_M
 
 static uintptr_t m_early_alloc_top = 0;
 static size_t m_early_alloc_size = 0;
+static size_t m_early_alloc_page_count = 0;
 
 static void early_alloc_find_next_entry(void) {
     struct limine_memmap_response* response = m_memmap_request.response;
@@ -82,6 +84,7 @@ void* early_phys_alloc_page(void) {
     uintptr_t phys = m_early_alloc_top;
     m_early_alloc_top += PAGE_SIZE;
     m_early_alloc_size -= PAGE_SIZE;
+    m_early_alloc_page_count++;
 
     void* ptr = phys_to_direct(phys);
     memset(ptr, 0, PAGE_SIZE);
@@ -285,6 +288,10 @@ static void early_phys_add_memory(void) {
 
         phys_add_memory(phys_to_direct(base), phys_to_direct(end));
     }
+
+    // the rest of the memory now belongs to the physical allocator, so the
+    // early allocations are final and can be accounted as committed
+    mem_acct_add_committed(m_early_alloc_page_count);
 }
 
 void early_virt_init(void) {

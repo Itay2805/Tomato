@@ -22,11 +22,22 @@
 #define PHYS_BUDDY_MAX_SIZE (1ULL << ((PHYS_BUDDY_MAX_LEVEL + PHYS_BUDDY_MIN_ORDER) - 1))
 
 /**
- * Allocate physical memory
+ * Allocate physical memory, a block of a page or more commits all of its pages, a
+ * smaller block only commits a page when it has to split a new one.
  *
- * Returns NULL if there is no free block
+ * Returns NULL if there is no free block or not enough available pages
  */
 void* phys_alloc(size_t size);
+
+/**
+ * Allocate physical memory using pages that were reserved with mem_acct_reserve,
+ * the size must be exactly a block of pages so it is clear how many pages are
+ * taken from the reservation.
+ *
+ * A single page always succeeds, bigger blocks can still fail because of
+ * fragmentation, in which case the reservation is left untouched.
+ */
+void* phys_alloc_reserved(size_t size);
 
 /**
  * Free physical memory
@@ -34,6 +45,15 @@ void* phys_alloc(size_t size);
 void phys_free(void* ptr, size_t size);
 
 /**
- * Add more memory to the physical memory allcoator
+ * Free physical memory, putting its pages back into the reservation instead of
+ * making them available, so the owner can allocate them again later.
+ *
+ * The size must be exactly a block of pages
+ */
+void phys_free_reserved(void* ptr, size_t size);
+
+/**
+ * Add more memory to the physical memory allcoator, the range
+ * must be page aligned since it is accounted in pages
  */
 void phys_add_memory(void* start, void* end);
