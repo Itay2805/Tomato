@@ -3,7 +3,9 @@
 #include "lib/assert.h"
 #include "lib/list.h"
 #include "lib/string.h"
+#include "lib/trace.h"
 #include "mem/phys.h"
+#include "mem/virt.h"
 #include "sync/mutex.h"
 #include <stddefer.h>
 
@@ -19,7 +21,7 @@ static mem_alloc_slab_t* slab_create(mem_alloc_t* alloc, const mem_alloc_meta_t*
 
     // we assume most slabs don't get freed so we can
     // mark it as global to save on tlb invalidations
-    // TODO: virt_make_global(slab, 1);
+    virt_make_global(slab, 1);
 
     // setup the metadata
     slab->alloc = alloc;

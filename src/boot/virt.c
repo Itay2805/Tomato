@@ -9,6 +9,7 @@
 #include "mem/accounting.h"
 #include "mem/mapping.h"
 #include "mem/phys.h"
+#include "mem/virt.h"
 #include "mem/vmar.h"
 #include "util/defs.h"
 
@@ -147,9 +148,6 @@ static void init_direct_map(void) {
 // Generic early utilities for page table manipulation
 //
 
-static void* m_page_table = nullptr;
-static size_t m_page_table_levels = 0;
-
 static uint64_t* early_virt_get_next_level(uint64_t* entry) {
     if ((*entry & IA32_PG_P) == 0) {
         void* phys = early_phys_alloc_page();
@@ -159,8 +157,8 @@ static uint64_t* early_virt_get_next_level(uint64_t* entry) {
 }
 
 static uint64_t* early_virt_get_pte(void* virt) {
-    uint64_t* table = m_page_table;
-    for (int i = m_page_table_levels - 1; i >= 0; i--) {
+    uint64_t* table = g_page_table;
+    for (int i = g_page_table_levels - 1; i >= 0; i--) {
         size_t shift = PAGING_INDEX_BITS * i + PAGE_SHIFT;
         size_t index = ((uintptr_t)virt >> shift) & PAGING_INDEX_MASK;
 
@@ -296,18 +294,18 @@ static void early_phys_add_memory(void) {
 }
 
 void early_virt_switch_table(void) {
-    __writecr3(direct_to_phys(m_page_table));
+    __writecr3(direct_to_phys(g_page_table));
 }
 
 void early_virt_init(void) {
     // initialize the basic regions
-    m_page_table_levels = init_kernel_region();
+    g_page_table_levels = init_kernel_region();
     init_direct_map();
 
     // map the kernel and direct map, don't link
     // them to the vmar tree yet, because we want
     // to avoid code that will use kasan
-    m_page_table = early_phys_alloc_page();
+    g_page_table = early_phys_alloc_page();
     early_map_kernel();
     early_map_direct_map();
     // TODO: create kasan range

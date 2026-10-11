@@ -1,8 +1,11 @@
 #pragma once
 
 #include "arch/virt.h"
+#include "lib/object.h"
 #include "lib/rbtree/rbtree.h"
 #include "lib/rbtree/rbtree_types.h"
+#include "sync/mutex.h"
+#include "sync/rwlock.h"
 #include "util/except.h"
 #include <stdint.h>
 
@@ -21,9 +24,19 @@ typedef enum vmar_kind : uint8_t {
      * never fault and have special semantics for how things are mapped
      */
     VMAR_KIND_SPECIAL,
+
+    /**
+     * A VMAR that maps to memory, this is essentially a leaf that can have no children
+     */
+    VMAR_KIND_MAPPING,
 } vmar_kind_t;
 
 typedef struct vmar {
+    /**
+     * The object headers
+     */
+    object_t object;
+
     /**
      * Node in the children tree of the parent,
      * allows for efficient lookup for address in the vmar
@@ -43,11 +56,6 @@ typedef struct vmar {
     struct vmar* parent;
 
     /**
-     * Debug name
-     */
-    const char* name;
-
-    /**
      * The gap, in pages, between this vmar and the sibling before
      * it (or the start of the parent if it is the first one)
      */
@@ -64,6 +72,11 @@ typedef struct vmar {
      */
     vmar_kind_t kind;
 
+    /**
+     * Was this VMAR unmapped?
+     */
+    bool unmapped;
+
     union {
         struct {
             /**
@@ -71,6 +84,14 @@ typedef struct vmar {
              */
             rb_root_linked_t children;
         } region;
+
+        struct {
+            /**
+             * A lock that protects the page table
+             * range of the mapping
+             */
+            mutex_t page_table_lock;
+        } mapping;
     };
 } vmar_t;
 
@@ -104,10 +125,40 @@ INIT_CODE void vmar_link(vmar_t* parent, vmar_t* child);
 /**
  * Place the child in the parent and link it.
  *
- * The offset is relative to the start of the parent, if it is VMAR_ANY_OFFSET
- * the child is placed in the lowest gap that can hold it (first-fit).
+ * see `vmar_allocate` for more details
+ *
+ * This does not increment the ref-count of the child, so it essentially takes it
  */
 err_t vmar_allocate_static(vmar_t* parent, vmar_t* child, uintptr_t offset, size_t page_count);
+
+/**
+ * Allocate a new vmar
+ *
+ * The offset is relative to the start of the parent, if it is VMAR_ANY_OFFSET
+ * the child is placed in the lowest gap that can hold it (first-fit).
+ *
+ * You need to put the child when you are done, this will NOT free it as the tree
+ * also has a reference
+ */
+err_t vmar_allocate(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page_count);
+
+/**
+ * Create an anonymous mapping, allocating new memory lazily as required
+ */
+err_t vmar_map(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page_count);
+
+/**
+ * Free a vmar
+ *
+ * DO NOT CALL MANUALLY
+ */
+void vmar_free(vmar_t* vmar);
+
+/**
+ * Unmap the vmar and all its children, this will not free
+ * the vmars but it will disconnect them from each other
+ */
+void vmar_unmap(vmar_t* vmar);
 
 /**
  * Dump the VMAR tree

@@ -1,11 +1,13 @@
 #include "mapping.h"
+#include "arch/virt.h"
+#include "lib/object.h"
 #include "lib/rbtree/rbtree_types.h"
 #include "mem/vmar.h"
 #include "util/defs.h"
 #include <stdint.h>
 
 vmar_t g_kernel_region = {
-    .name = "kernel",
+    .object = INIT_OBJECT(OBJECT_KIND_VMAR, "kernel"),
     .kind = VMAR_KIND_REGION,
     .region = {
         .children = RB_ROOT_LINKED,
@@ -13,12 +15,12 @@ vmar_t g_kernel_region = {
 };
 
 vmar_t g_direct_map = {
-    .name = "direct-map",
+    .object = INIT_OBJECT(OBJECT_KIND_VMAR, "direct-map"),
     .kind = VMAR_KIND_SPECIAL,
 };
 
 vmar_t g_buddy_bitmap_mapping = {
-    .name = "buddy-bitmap",
+    .object = INIT_OBJECT(OBJECT_KIND_VMAR, "buddy-bitmap"),
     .kind = VMAR_KIND_SPECIAL,
 };
 
@@ -26,7 +28,7 @@ vmar_t g_buddy_bitmap_mapping = {
     extern char __##_name##_start[];                                                               \
     extern char __##_name##_page_count[];                                                          \
     vmar_t g_kernel_##_name##_mapping = {                                                          \
-        .name = "kernel " #_name,                                                                  \
+        .object = INIT_OBJECT(OBJECT_KIND_VMAR, "kernel " #_name),                                 \
         .base = __##_name##_start,                                                                 \
         .page_count = (uintptr_t)__##_name##_page_count,                                           \
         .kind = VMAR_KIND_SPECIAL,                                                                 \
@@ -44,7 +46,7 @@ KERNEL_REGION(late_rodata);
 KERNEL_REGION(data);
 
 vmar_t g_user_region = {
-    .name = "user",
+    .object = INIT_OBJECT(OBJECT_KIND_VMAR, "user"),
     .kind = VMAR_KIND_REGION,
     .region = {
         .children = RB_ROOT_LINKED,
