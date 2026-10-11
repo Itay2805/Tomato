@@ -7,6 +7,7 @@
 #include "lib/assert.h"
 #include "mem/phys.h"
 #include "util/defs.h"
+#include <stdint.h>
 
 #define CR0_PG BIT31
 #define CR0_CD BIT30
@@ -46,9 +47,7 @@
 #define CR4_PKS        BIT24
 #define CR4_UINTR      BIT25
 
-static uint32_t arch_validate_required_cpu_features() {
-    uint32_t cr4 = 0;
-
+static void arch_validate_required_cpu_features() {
     {
         CPUID_VERSION_INFO_ECX ecx;
         ASSERT(cpuid(CPUID_VERSION_INFO, nullptr, nullptr, &ecx.raw, nullptr));
@@ -81,13 +80,9 @@ static uint32_t arch_validate_required_cpu_features() {
 
         // Features unconditionally used by the kernel
         ASSERT(ebx.SMAP, "Missing SMAP support");
+        ASSERT(ebx.SMEP, "Missing SMEP support");
         ASSERT(ebx.INVPCID, "Missing INVPCID support");
-
-        // Features that are optional
-        if (ebx.SMEP)
-            cr4 |= CR4_SMEP;
-        if (ecx.UMIP)
-            cr4 |= CR4_UMIP;
+        ASSERT(ecx.UMIP, "Missing UMIP support");
     }
 
     {
@@ -103,20 +98,20 @@ static uint32_t arch_validate_required_cpu_features() {
         ASSERT(edx.SYSCALL_SYSRET_64, "Missing SYSCALL_SYSRET_64 support");
         ASSERT(edx.EXECUTE_DIS, "Missing EXECUTE_DIS support");
     }
-
-    return cr4;
 }
 
 void arch_early_init() {
-    uint32_t cr4 = arch_validate_required_cpu_features();
+    arch_validate_required_cpu_features();
 
     __writecr0(CR0_PG | CR0_PE | CR0_MP | CR0_WP);
 
+    uint32_t cr4 = 0;
     cr4 |= CR4_PAE;
     cr4 |= CR4_PGE;
     cr4 |= CR4_OSFXSR | CR4_OSXMMEXCPT;
     cr4 |= CR4_OSXSAVE;
-    cr4 |= CR4_SMAP;
+    cr4 |= CR4_SMAP | CR4_SMEP;
+    cr4 |= CR4_UMIP;
     __writecr4(cr4);
 
     MSR_IA32_EFER_REGISTER efer = { .packed = __rdmsr(MSR_IA32_EFER) };
