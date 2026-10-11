@@ -25,7 +25,6 @@
 #define IA32_PG_G      BIT8
 #define IA32_PG_PAT_2M BIT12
 #define IA32_PG_PAT_4K IA32_PG_PS
-#define IA32_PG_PMNT   BIT62
 #define IA32_PG_NX     BIT63
 
 /**

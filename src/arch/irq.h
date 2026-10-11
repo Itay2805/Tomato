@@ -4,10 +4,10 @@
 #include <stddef.h>
 
 static inline void irq_enable() {
-    asm("sti");
+    asm("sti" ::: "memory");
 }
 static inline void irq_disable() {
-    asm("cli");
+    asm("cli" ::: "memory");
 }
 
 static inline bool irq_enabled() {

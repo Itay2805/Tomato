@@ -106,6 +106,10 @@ static void* phys_alloc_internal(int level, bool reserved) {
     if (block_at_level == PHYS_BUDDY_MAX_LEVEL) {
         // a reserved page always has a free page waiting for it,
         // if it doesn't then the accounting is broken
+
+        // TODO: attempt to reclaim as much memory from different places on the system, and only
+        //       if we still have no memory then return null
+
         ASSERT(!reserved || level != PHYS_BUDDY_PAGE_LEVEL,
                "memory: no free page for a reserved allocation");
         return NULL;

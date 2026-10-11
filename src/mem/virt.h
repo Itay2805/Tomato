@@ -1,0 +1,26 @@
+#pragma once
+
+#include "util/except.h"
+#include <stddef.h>
+#include <stdint.h>
+
+LATE_RO extern void* g_page_table;
+LATE_RO extern size_t g_page_table_levels;
+
+/**
+ * Mark a global page as marked
+ */
+void virt_make_global(void* addr);
+
+/**
+ * Allocate the non-leaf entries in the range of base to page count, ensuring that we
+ * don't need to allocate anything in order to map a new page, this is mostly done to
+ * more easily deal with ensuring we don't over commit, the amount of need to allocate
+ * is small enough that it should not be too expensive performance wise
+ */
+err_t virt_reserve_page_tables(void* base, size_t page_count);
+
+/**
+ * Free the allocated region
+ */
+void virt_free(void* base, size_t page_count);

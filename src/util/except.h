@@ -37,4 +37,4 @@ typedef struct err {
         }                                                                                          \
     } while (0)
 
-#define CHECK_FAIL(code, ...) CHECK(0, code, ##__VA_ARGS__)
+#define CHECK_FAIL(code, ...) CHECK_ERROR(0, code, ##__VA_ARGS__)

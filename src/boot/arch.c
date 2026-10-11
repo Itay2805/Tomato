@@ -103,7 +103,7 @@ static void arch_validate_required_cpu_features() {
 void arch_early_init() {
     arch_validate_required_cpu_features();
 
-    __writecr0(CR0_PG | CR0_PE | CR0_MP | CR0_WP);
+    __writecr0(CR0_PG | CR0_PE | CR0_MP | CR0_WP | CR0_NE);
 
     uint32_t cr4 = 0;
     cr4 |= CR4_PAE;

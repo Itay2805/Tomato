@@ -10,6 +10,19 @@
 #define ALIGN_UP(x, align)   __builtin_align_up(x, align)
 #define ALIGN_DOWN(x, align) __builtin_align_down(x, align)
 
+#define _CONCAT(a, b) a##b
+#define CONCAT(a, b)  _CONCAT(a, b)
+
+/**
+ * Emulates move semantics, freeing the previous pointer
+ */
+#define MOVE(ptr)                                                                                  \
+    ({                                                                                             \
+        typeof(ptr) ptr__ = ptr;                                                                   \
+        ptr = nullptr;                                                                             \
+        ptr__;                                                                                     \
+    })
+
 /**
  * Mark function as init code, it will get deleted once kernel init is done
  */

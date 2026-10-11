@@ -98,6 +98,8 @@ c.ldflags.add(
     ]
 )
 
+kernel_cflags: list[str] = []
+
 # If we are compiled for debug
 if config("DEBUG") == "y":
     # Debugging flags
@@ -127,6 +129,9 @@ else:
         ]
     )
 
+    # we want the kernel to have lto
+    kernel_cflags.append("-flto")
+
     c.ldflags.add(
         [
             # Make sure we have the max optimization level with lto
@@ -152,13 +157,7 @@ boot_code = c.static_library_bundle(
 #
 # The kernel code, it builds with kasan
 #
-with c.cflags.add(
-    [
-        # We only want the core kernel to have lto, we need the
-        # boot code to not have lto so it can be linked properly
-        "-flto",
-    ]
-):
+with c.cflags.add(kernel_cflags):
     kernel_code = c.static_library_bundle(
         name="kernel",
         sources=sources,
@@ -303,4 +302,3 @@ image = limine_image.build(
         "efi": limine_bootx64,
     },
 )
-

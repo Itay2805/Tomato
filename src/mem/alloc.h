@@ -56,17 +56,47 @@ typedef struct mem_alloc {
     list_t empty;
 } mem_alloc_t;
 
+typedef struct mem_alloc_slab {
+    /**
+     * Link into the allocator's link list of slabs
+     */
+    list_entry_t link;
+
+    /**
+     * The free-list of the slab
+     * Doubly-linked to allow us to put frees at the end
+     * while allocating from the start
+     */
+    list_t free;
+
+    /**
+     * The allocator the slab belongs to
+     */
+    mem_alloc_t* alloc;
+
+    /**
+     * Objects in use in the slab
+     */
+    uint16_t in_use;
+} mem_alloc_slab_t;
+
 #define DEFINE_ALLOC(type)                                                                         \
+    static_assert(sizeof(type) >= 16);                                                             \
     static_assert(sizeof(type) <= UINT16_MAX);                                                     \
     static_assert(alignof(type) <= UINT16_MAX);                                                    \
     static constexpr size_t m_##type##_alloc_stride =                                              \
         ALIGN_UP(MAX(sizeof(void*), sizeof(type)), alignof(type));                                 \
     static_assert(m_##type##_alloc_stride <= UINT16_MAX);                                          \
     static_assert(m_##type##_alloc_stride >= sizeof(type));                                        \
+    static constexpr size_t m_##type##_alloc_objects_per_slab =                                    \
+        (PAGE_SIZE - ALIGN_UP(sizeof(mem_alloc_slab_t), alignof(type))) / m_##type##_alloc_stride; \
+    static_assert(m_##type##_alloc_objects_per_slab >= 1);                                         \
+    static_assert(m_##type##_alloc_objects_per_slab <= UINT16_MAX);                                \
     static constexpr mem_alloc_meta_t m_##type##_alloc_meta = {                                    \
         .object_size = sizeof(type),                                                               \
         .object_align = alignof(type),                                                             \
         .object_stride = m_##type##_alloc_stride,                                                  \
+        .objects_per_slab = m_##type##_alloc_objects_per_slab,                                     \
     };                                                                                             \
     static mem_alloc_t m_##type##_alloc = {                                                        \
         .partial = LIST_INIT(m_##type##_alloc.partial),                                            \
@@ -88,5 +118,7 @@ void mem_free(mem_alloc_t* alloc, const mem_alloc_meta_t* meta, void* ptr);
 #define FREE(type, ptr)                                                                            \
     do {                                                                                           \
         type* value__ = ptr;                                                                       \
-        mem_free(&m_##type##_alloc, &m_##type##_alloc_meta, value__);                              \
+        if (value__ != nullptr) {                                                                  \
+            mem_free(&m_##type##_alloc, &m_##type##_alloc_meta, value__);                          \
+        }                                                                                          \
     } while (0)

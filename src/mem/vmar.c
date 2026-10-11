@@ -2,11 +2,15 @@
 #include "arch/virt.h"
 #include "lib/assert.h"
 #include "lib/container_of.h"
+#include "lib/object.h"
 #include "lib/rbtree/rbtree.h"
 #include "lib/rbtree/rbtree_augmented.h"
 #include "lib/rbtree/rbtree_types.h"
 #include "lib/string.h"
 #include "lib/trace.h"
+#include "mem/accounting.h"
+#include "mem/alloc.h"
+#include "mem/virt.h"
 #include "sync/rwlock.h"
 #include "tomato/err.h"
 #include "util/except.h"
@@ -233,6 +237,141 @@ err_t vmar_allocate_static(vmar_t* parent, vmar_t* child, uintptr_t offset, size
     return SUCCESS;
 }
 
+DEFINE_ALLOC(vmar_t);
+
+err_t vmar_allocate(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page_count) {
+    CHECK_ARG(parent->kind == VMAR_KIND_REGION);
+    CHECK_ARG(page_count != 0);
+
+    // allocate the new entry
+    vmar_t* child = ALLOC(vmar_t);
+    CHECK_ERROR(child != nullptr, OUT_OF_RESOURCES);
+    child->object = INIT_OBJECT(OBJECT_KIND_VMAR);
+    OBJECT_GET(child); // we return the object
+    child->kind = VMAR_KIND_REGION;
+    child->region.children = RB_ROOT_LINKED;
+    defer if (child != nullptr) vmar_free(child);
+
+    // actually place it
+    RETHROW(vmar_allocate_static(parent, child, offset, page_count));
+
+    // move it to the caller
+    *new_child = MOVE(child);
+
+    return SUCCESS;
+}
+
+err_t vmar_map(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page_count) {
+    CHECK_ARG(parent->kind == VMAR_KIND_REGION);
+    CHECK_ARG(page_count != 0);
+
+    // start by reserving pages for the mapping
+    RETHROW(mem_acct_reserve(page_count));
+    defer if (page_count != 0) mem_acct_unreserve(page_count);
+
+    // allocate the new entry
+    vmar_t* child = ALLOC(vmar_t);
+    CHECK_ERROR(child != nullptr, OUT_OF_RESOURCES);
+    child->object = INIT_OBJECT(OBJECT_KIND_VMAR);
+    OBJECT_GET(child); // we return the object
+    child->kind = VMAR_KIND_MAPPING;
+    defer if (child != nullptr) vmar_free(child);
+
+    // actually place it
+    RETHROW(vmar_allocate_static(parent, child, offset, page_count));
+
+    // now that we know where we want to be, reserve the
+    // page table region, if this fails we are going to
+    // properly free everything
+    RETHROW(virt_reserve_page_tables(child->base, child->page_count));
+
+    page_count = 0;
+    *new_child = MOVE(child);
+
+    return SUCCESS;
+}
+
+/**
+ * Perform the actual unmap logic, assumes we are
+ * under the vmar exclusive lock.
+ *
+ * this does NOT release the last reference
+ */
+static void vmar_unmap_internal(vmar_t* vmar) {
+    // make sure not unmapped already
+    ASSERT(!vmar->unmapped);
+
+    // get the parent and validate it
+    vmar_t* parent = vmar->parent;
+    ASSERT(parent != nullptr);
+    ASSERT(parent->kind == VMAR_KIND_REGION);
+
+    if (vmar->kind == VMAR_KIND_REGION) {
+        // we are going to unmap all of the children, and then put the reference, which will
+        // optionally free the vmar itself (or not if there is a parent)
+        rb_node_linked_t* it = rb_first_linked(&vmar->region.children);
+        while (it != nullptr) {
+
+            // get the child and the next one already
+            vmar_t* child = vmar_of_linked(it);
+            it = it->next;
+
+            // unmap the entry, this will remove the link
+            vmar_unmap_internal(child);
+
+            // put the child ref, potentially freeing it
+            OBJECT_PUT(child);
+        }
+
+    } else if (vmar->kind == VMAR_KIND_MAPPING) {
+        // take the lock for the mapping, so no one can access
+        // it at the same time as we are modifying it
+        rwlock_exclusive_guard(&vmar->mapping.page_table_lock);
+
+        virt_free(vmar->base, vmar->page_count);
+
+    } else if (vmar->kind == VMAR_KIND_SPECIAL) {
+        ASSERT(!"Can't free special mappings");
+
+    } else {
+        ASSERT(!"Unknown vmar kind!");
+    }
+
+    // remove from the tree
+    vmar_t* next = vmar_next(vmar);
+    rb_erase_augmented_linked(&vmar->node, &parent->region.children, &vmar_gap_callbacks);
+    if (next != nullptr) {
+        vmar_gap_update(next);
+    }
+
+    // and finally clear everything to make sure the objects are
+    // known to be unmapped
+    vmar->parent = nullptr;
+    vmar->unmapped = true;
+}
+
+void vmar_unmap(vmar_t* vmar) {
+    // we are about the modify the vmar tree, lock
+    // the vmar exclusively
+    rwlock_exclusive_guard(&m_vmar_lock);
+
+    // ignore if already unmapped
+    if (vmar->unmapped) {
+        return;
+    }
+
+    // unmap it and remove the reference, assuming
+    // the caller holds a reference
+    vmar_unmap_internal(vmar);
+    OBJECT_PUT(vmar);
+}
+
+void vmar_free(vmar_t* vmar) {
+    // must be mapped before reaching this point
+    ASSERT(vmar->unmapped);
+    FREE(vmar_t, vmar);
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Dumping
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -279,14 +418,21 @@ static const char* vmar_kind_str(vmar_kind_t kind) {
             return "region";
         case VMAR_KIND_SPECIAL:
             return "special";
+        case VMAR_KIND_MAPPING:
+            return "mapping";
         default:
             return "unknown";
     }
 }
 
 static void vmar_dump_line(vmar_t* vmar, const char* prefix, const char* branch) {
+    const char* name = vmar->name;
+    if (name == nullptr) {
+        name = "<anonymous>";
+    }
+
     TRACE("%s%s%016lx-%016lx: %s [%s]", prefix, branch, (uintptr_t)vmar->base,
-          (uintptr_t)vmar_end(vmar), vmar->name, vmar_kind_str(vmar->kind));
+          (uintptr_t)vmar_end(vmar), name, vmar_kind_str(vmar->kind));
 }
 
 static void vmar_dump_gap(size_t first_page, size_t page_count, const char* prefix,

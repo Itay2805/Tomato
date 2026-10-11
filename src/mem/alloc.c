@@ -3,62 +3,35 @@
 #include "lib/assert.h"
 #include "lib/list.h"
 #include "lib/string.h"
+#include "lib/trace.h"
 #include "mem/phys.h"
+#include "mem/virt.h"
 #include "sync/mutex.h"
 #include <stddefer.h>
 
-typedef struct free_object {
-    list_entry_t entry;
-} free_object_t;
-
-typedef struct slab {
-    /**
-     * Link into the allocator's link list of slabs
-     */
-    list_entry_t link;
-
-    /**
-     * The free-list of the slab
-     * Doubly-linked to allow us to put frees at the end
-     * while allocating from the start
-     */
-    list_t free;
-
-    /**
-     * The allocator the slab belongs to
-     */
-    mem_alloc_t* alloc;
-
-    /**
-     * Objects in use in the slab
-     */
-    uint16_t in_use;
-} slab_t;
-static_assert(sizeof(slab_t) <= 64);
-
-static inline slab_t* object_to_slab(void* p) {
+static inline mem_alloc_slab_t* object_to_slab(void* p) {
     return ALIGN_DOWN(p, PAGE_SIZE);
 }
 
-static slab_t* slab_create(mem_alloc_t* alloc, const mem_alloc_meta_t* meta) {
-    slab_t* slab = phys_alloc(PAGE_SIZE);
+static mem_alloc_slab_t* slab_create(mem_alloc_t* alloc, const mem_alloc_meta_t* meta) {
+    mem_alloc_slab_t* slab = phys_alloc(PAGE_SIZE);
     if (slab == nullptr) {
         return nullptr;
     }
 
     // we assume most slabs don't get freed so we can
     // mark it as global to save on tlb invalidations
-    // TODO: virt_make_global(slab);
+    virt_make_global(slab);
 
     // setup the metadata
     slab->alloc = alloc;
     slab->free = LIST_INIT(slab->free);
 
     // link all the objects into the linked list
-    void* area = (void*)slab + ALIGN_UP(sizeof(slab_t), meta->object_align);
+    void* area = (void*)slab + ALIGN_UP(sizeof(mem_alloc_slab_t), meta->object_align);
     for (int i = 0; i < meta->objects_per_slab; i++) {
-        free_object_t* node = area + meta->object_stride * i;
-        list_add(&slab->free, &node->entry);
+        list_entry_t* node = area + meta->object_stride * i;
+        list_add(&slab->free, node);
 
         // we fill the area between this object and the next object with 0xBB
         // just to make it a bit easier to catch overflows on the object
@@ -72,12 +45,12 @@ void* mem_alloc(mem_alloc_t* alloc, const mem_alloc_meta_t* meta) {
     mutex_guard(&alloc->lock);
 
     // choose a slab to use, prefer partial slabs
-    slab_t* slab;
+    mem_alloc_slab_t* slab;
     if (!list_empty(&alloc->partial)) {
-        slab = list_first_entry(&alloc->partial, slab_t, link);
+        slab = list_first_entry(&alloc->partial, mem_alloc_slab_t, link);
 
     } else if (!list_empty(&alloc->empty)) {
-        slab = list_first_entry(&alloc->empty, slab_t, link);
+        slab = list_first_entry(&alloc->empty, mem_alloc_slab_t, link);
 
         // move to partial list
         list_del(&slab->link);
@@ -91,13 +64,13 @@ void* mem_alloc(mem_alloc_t* alloc, const mem_alloc_meta_t* meta) {
         list_add(&alloc->partial, &slab->link);
     }
 
-    free_object_t* object = list_first_entry(&slab->free, free_object_t, entry);
-    ASSERT(object != NULL);
+    ASSERT(!list_empty(&slab->free));
+    list_entry_t* object = slab->free.next;
 
     // remove from the list and clear the object so it can be
     // zeroed, the free path handles the zero of the entire object
-    list_del(&object->entry);
-    *object = (free_object_t){};
+    list_del(object);
+    *object = (list_entry_t){};
 
     slab->in_use++;
 
@@ -107,7 +80,7 @@ void* mem_alloc(mem_alloc_t* alloc, const mem_alloc_meta_t* meta) {
         list_add(&alloc->full, &slab->link);
     }
 
-    return slab;
+    return object;
 }
 
 void mem_free(mem_alloc_t* alloc, const mem_alloc_meta_t* meta, void* ptr) {
@@ -118,13 +91,13 @@ void mem_free(mem_alloc_t* alloc, const mem_alloc_meta_t* meta, void* ptr) {
     mutex_guard(&alloc->lock);
 
     // get the slab, and ensure it matches the alloc we are freeing from
-    slab_t* slab = object_to_slab(ptr);
+    mem_alloc_slab_t* slab = object_to_slab(ptr);
     ASSERT(slab->alloc == alloc);
 
     // add to the freelist of the slab
     memset(ptr, 0, meta->object_size);
-    free_object_t* object = ptr;
-    list_add_tail(&object->entry, &slab->free);
+    list_entry_t* object = ptr;
+    list_add_tail(&slab->free, object);
 
     // decrease the use count
     ASSERT(slab->in_use != 0);

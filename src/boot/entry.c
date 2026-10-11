@@ -1,9 +1,13 @@
+#include "arch/virt.h"
 #include "boot/arch.h"
 #include "boot/random.h"
 #include "boot/virt.h"
 #include "lib/assert.h"
+#include "lib/object.h"
 #include "lib/trace.h"
 #include "limine.h"
+#include "mem/mapping.h"
+#include "mem/vmar.h"
 #include "sync/smp.h"
 #include "util/sp.h"
 #include <immintrin.h>
@@ -115,7 +119,11 @@ static void init_stack_guard() {
 }
 
 void _start() {
+#ifdef __DEBUG__
+    TRACE("Tomato! (DEBUG)");
+#else
     TRACE("Tomato!");
+#endif
     bootloader_sanity();
 
     // setup the stack guard as soon as possible

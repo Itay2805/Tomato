@@ -41,24 +41,26 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(
         description="Build the tomato image and boot it under qemu.",
-        usage="%(prog)s [-h] [-B BUILDDIR] [-- QEMU_ARGS...]",
     )
+
     parser.add_argument(
-        "-B",
-        "--builddir",
-        type=Path,
-        default=Path("build"),
-        help="the bob build directory (default: build)",
+        "-D",
+        "--debug",
+        action="store_true",
+        default=False,
+        help="build as debug",
     )
+
     args = parser.parse_args(argv)
 
-    image = args.builddir / "tomato.hdd"
+    image = Path("build/tomato.hdd")
 
-    # Make sure the image is up to date, reusing the configs it was last
-    # configured with so we don't silently drop something like DEBUG=y
-    bob = ["bob", "build", "-B", str(args.builddir)]
-    if get_configs_path(args.builddir).exists():
-        bob.append("-u")
+    bob = [
+        "bob",
+        "build",
+        "-c",
+        f"DEBUG={'y' if args.debug else 'n'}",
+    ]
     bob.append(str(image))
 
     result = subprocess.run(bob)

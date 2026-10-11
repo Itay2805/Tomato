@@ -22,11 +22,11 @@ void __list_del_entry_valid_or_report(list_entry_t* entry) {
     list_entry_t* prev = entry->prev;
     list_entry_t* next = entry->next;
 
-    ASSERT(prev->next != entry,
+    ASSERT(prev->next == entry,
            "list_del corruption. prev->next should be %px, but was %px. (prev=%px)\n", entry,
            prev->next, prev);
 
-    ASSERT(next->prev != entry,
+    ASSERT(next->prev == entry,
            "list_del corruption. next->prev should be %px, but was %px. (next=%px)\n", entry,
            next->prev, next);
 
