@@ -183,11 +183,6 @@ static void early_map_vmar(vmar_t* vmar, vm_perm_t perms) {
     void* virt_base = (void*)g_executable_address.response->virtual_base;
     uint64_t phys_addr = (vmar->base - virt_base) + phys_base;
 
-    char w = perms == VM_PERM_RW ? 'w' : '-';
-    char x = perms == VM_PERM_RX ? 'x' : '-';
-    TRACE("\t%p-%p: %lu pages [r%c%c] %s", vmar->base,
-          vmar->base + (vmar->page_count * PAGE_SIZE) - 1, vmar->page_count, w, x, vmar->name);
-
     uint64_t flags = IA32_PG_G;
     if (perms == VM_PERM_RW) {
         flags |= IA32_PG_D | IA32_PG_RW;
@@ -199,7 +194,6 @@ static void early_map_vmar(vmar_t* vmar, vm_perm_t perms) {
 }
 
 static void early_map_kernel() {
-    TRACE("Mapping kernel");
     early_map_vmar(&g_kernel_limine_requests_mapping, VM_PERM_RO);
     early_map_vmar(&g_kernel_init_text_mapping, VM_PERM_RX);
     early_map_vmar(&g_kernel_init_rodata_mapping, VM_PERM_RO);
