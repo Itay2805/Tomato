@@ -65,6 +65,12 @@ void virt_make_global(void* addr) {
 }
 
 err_t virt_reserve_page_tables(void* base, size_t page_count) {
+    err_t err = SUCCESS;
+
+    // reserve the memory
+    RETHROW(mem_acct_reserve(page_count));
+    errdefer mem_acct_unreserve(page_count);
+
     rwlock_exclusive_guard(&m_page_table_lock);
 
     for (size_t i = 0; i < page_count; i++) {
@@ -72,7 +78,7 @@ err_t virt_reserve_page_tables(void* base, size_t page_count) {
         CHECK_ERROR(virt_get_pte(addr, true) != nullptr, OUT_OF_RESOURCES);
     }
 
-    return SUCCESS;
+    return err;
 }
 
 void virt_free(void* base, size_t page_count) {

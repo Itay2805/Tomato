@@ -308,15 +308,15 @@ void early_virt_init(void) {
     // memory init
 
     // now with the new page table finialize the
-    ASSERT_SUCCESS(vmar_link(&g_kernel_region, &g_direct_map));
-    ASSERT_SUCCESS(vmar_link(&g_kernel_region, &g_kernel_limine_requests_mapping));
-    ASSERT_SUCCESS(vmar_link(&g_kernel_region, &g_kernel_init_text_mapping));
-    ASSERT_SUCCESS(vmar_link(&g_kernel_region, &g_kernel_init_rodata_mapping));
-    ASSERT_SUCCESS(vmar_link(&g_kernel_region, &g_kernel_init_data_mapping));
-    ASSERT_SUCCESS(vmar_link(&g_kernel_region, &g_kernel_text_mapping));
-    ASSERT_SUCCESS(vmar_link(&g_kernel_region, &g_kernel_rodata_mapping));
-    ASSERT_SUCCESS(vmar_link(&g_kernel_region, &g_kernel_late_rodata_mapping));
-    ASSERT_SUCCESS(vmar_link(&g_kernel_region, &g_kernel_data_mapping));
+    vmar_link(&g_kernel_region, &g_direct_map);
+    vmar_link(&g_kernel_region, &g_kernel_limine_requests_mapping);
+    vmar_link(&g_kernel_region, &g_kernel_init_text_mapping);
+    vmar_link(&g_kernel_region, &g_kernel_init_rodata_mapping);
+    vmar_link(&g_kernel_region, &g_kernel_init_data_mapping);
+    vmar_link(&g_kernel_region, &g_kernel_text_mapping);
+    vmar_link(&g_kernel_region, &g_kernel_rodata_mapping);
+    vmar_link(&g_kernel_region, &g_kernel_late_rodata_mapping);
+    vmar_link(&g_kernel_region, &g_kernel_data_mapping);
 
     // now initialize the buddy allocator bitmap
     // and add all physical memory to it

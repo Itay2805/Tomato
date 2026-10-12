@@ -124,10 +124,7 @@ static size_t vmar_tail_gap(vmar_t* parent, size_t* out_page) {
 /**
  * Orders the children by address, two children that overlap compare as equal
  */
-static int vmar_overlap_cmp(rb_node_t* new, const rb_node_t* exist) {
-    vmar_t* a = vmar_of_rb(new);
-    vmar_t* b = vmar_of_rb(exist);
-
+static int vmar_compare_ranges(const vmar_t* a, const vmar_t* b) {
     if (vmar_end_page(a) <= vmar_first_page(b)) {
         return -1;
     } else if (vmar_first_page(a) >= vmar_end_page(b)) {
@@ -137,26 +134,38 @@ static int vmar_overlap_cmp(rb_node_t* new, const rb_node_t* exist) {
     }
 }
 
-static err_t vmar_link_internal(vmar_t* parent, vmar_t* child) {
-    CHECK_ARG(parent->kind == VMAR_KIND_REGION);
-    CHECK_ARG(child->parent == nullptr);
-    CHECK_ARG(((uintptr_t)child->base & PAGE_MASK) == 0);
+static int vmar_overlap_cmp(rb_node_t* new, const rb_node_t* exist) {
+    return vmar_compare_ranges(vmar_of_rb(new), vmar_of_rb(exist));
+}
 
-    // must be fully contained within the parent
+/**
+ * Same ordering, but keyed by a vmar that is not in the tree, so we
+ * can look for an overlap without inserting anything
+ */
+static int vmar_overlap_find_cmp(const void* key, const rb_node_t* exist) {
+    return vmar_compare_ranges(key, vmar_of_rb(exist));
+}
+
+static err_t vmar_check_in_parent(vmar_t* parent, vmar_t* child) {
     size_t end;
-    CHECK_ERROR(!__builtin_add_overflow(vmar_first_page(child), child->page_count, &end),
-                OUT_OF_RANGE);
-    CHECK_ERROR(vmar_first_page(child) >= vmar_first_page(parent), OUT_OF_RANGE);
-    CHECK_ERROR(end <= vmar_end_page(parent), OUT_OF_RANGE);
+    CHECK(!__builtin_add_overflow(vmar_first_page(child), child->page_count, &end));
+    CHECK(vmar_first_page(child) >= vmar_first_page(parent));
+    CHECK(end <= vmar_end_page(parent));
+    return SUCCESS;
+}
+
+static void vmar_link_internal(vmar_t* parent, vmar_t* child) {
+    ASSERT(parent->kind == VMAR_KIND_REGION);
+    ASSERT(child->parent == nullptr);
+    ASSERT(((uintptr_t)child->base & PAGE_MASK) == 0);
 
     // insert into the tree, until we know who comes before us we contribute
     // no gap at all, which keeps the augmented data consistent while the
     // tree is being rebalanced
     child->gap = 0;
     child->max_gap = 0;
-    CHECK_ERROR(rb_find_add_augmented_linked(&child->node, &parent->region.children,
-                                             vmar_overlap_cmp, &vmar_gap_callbacks) == nullptr,
-                OVERLAPS);
+    ASSERT(rb_find_add_augmented_linked(&child->node, &parent->region.children, vmar_overlap_cmp,
+                                        &vmar_gap_callbacks) == nullptr);
     child->parent = parent;
 
     // now that we are in place both our own gap and the gap of the
@@ -166,13 +175,12 @@ static err_t vmar_link_internal(vmar_t* parent, vmar_t* child) {
     if (next != nullptr) {
         vmar_gap_update(next);
     }
-
-    return SUCCESS;
 }
 
-err_t vmar_link(vmar_t* parent, vmar_t* child) {
+INIT_CODE void vmar_link(vmar_t* parent, vmar_t* child) {
     rwlock_exclusive_guard(&m_vmar_lock);
-    return vmar_link_internal(parent, child);
+    ASSERT_SUCCESS(vmar_check_in_parent(parent, child));
+    vmar_link_internal(parent, child);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -212,27 +220,47 @@ static bool vmar_find_gap(vmar_t* parent, size_t page_count, size_t* out_page) {
     return false;
 }
 
+/**
+ * Search for a place in a gap to put the vmar, returns null if can't find one
+ *
+ * Assumes we are holding the vmar lock
+ */
+static err_t vmar_find_place(vmar_t* parent, vmar_t* child, uintptr_t offset, size_t page_count) {
+    // the parent must not be unmapped at this point
+    CHECK(!parent->unmapped);
+
+    child->page_count = page_count;
+
+    if (offset == VMAR_ANY_OFFSET) {
+        // first fit, the lowest gap that can hold the child
+        size_t page;
+        CHECK(vmar_find_gap(parent, page_count, &page));
+        child->base = (void*)(page << PAGE_SHIFT);
+
+    } else {
+        // at a fixed offset from the start of the parent, linking
+        // will verify the range is actually inside of it
+        uintptr_t base;
+        CHECK(!__builtin_add_overflow((uintptr_t)parent->base, offset, &base));
+        child->base = (void*)base;
+
+        // ensure its within the parent
+        RETHROW(vmar_check_in_parent(parent, child));
+
+        // make sure it does not overlap any of the existing children
+        CHECK(rb_find(child, &parent->region.children.rb_root, vmar_overlap_find_cmp) == nullptr);
+    }
+
+    return SUCCESS;
+}
+
 err_t vmar_allocate_static(vmar_t* parent, vmar_t* child, uintptr_t offset, size_t page_count) {
     CHECK_ARG(parent->kind == VMAR_KIND_REGION);
     CHECK_ARG(page_count != 0);
 
     rwlock_exclusive_guard(&m_vmar_lock);
-
-    uintptr_t base;
-    if (offset == VMAR_ANY_OFFSET) {
-        // first fit, the lowest gap that can hold the child
-        size_t page;
-        CHECK_ERROR(vmar_find_gap(parent, page_count, &page), OUT_OF_RESOURCES);
-        base = page << PAGE_SHIFT;
-    } else {
-        // at a fixed offset from the start of the parent, linking
-        // will verify the range is actually inside of it
-        CHECK_ERROR(!__builtin_add_overflow((uintptr_t)parent->base, offset, &base), OUT_OF_RANGE);
-    }
-
-    child->base = (void*)base;
-    child->page_count = page_count;
-    RETHROW(vmar_link_internal(parent, child));
+    RETHROW(vmar_find_place(parent, child, offset, page_count));
+    vmar_link_internal(parent, child);
 
     return SUCCESS;
 }
@@ -240,6 +268,8 @@ err_t vmar_allocate_static(vmar_t* parent, vmar_t* child, uintptr_t offset, size
 DEFINE_ALLOC(vmar_t);
 
 err_t vmar_allocate(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page_count) {
+    err_t err = SUCCESS;
+
     CHECK_ARG(parent->kind == VMAR_KIND_REGION);
     CHECK_ARG(page_count != 0);
 
@@ -250,24 +280,22 @@ err_t vmar_allocate(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t
     OBJECT_GET(child); // we return the object
     child->kind = VMAR_KIND_REGION;
     child->region.children = RB_ROOT_LINKED;
-    defer if (child != nullptr) vmar_free(child);
+    errdefer FREE(vmar_t, child);
 
-    // actually place it
+    // just use the allocate static function, since it does exactly what we need
     RETHROW(vmar_allocate_static(parent, child, offset, page_count));
 
     // move it to the caller
-    *new_child = MOVE(child);
+    *new_child = child;
 
-    return SUCCESS;
+    return err;
 }
 
 err_t vmar_map(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page_count) {
+    err_t err = SUCCESS;
+
     CHECK_ARG(parent->kind == VMAR_KIND_REGION);
     CHECK_ARG(page_count != 0);
-
-    // start by reserving pages for the mapping
-    RETHROW(mem_acct_reserve(page_count));
-    defer if (page_count != 0) mem_acct_unreserve(page_count);
 
     // allocate the new entry
     vmar_t* child = ALLOC(vmar_t);
@@ -275,20 +303,22 @@ err_t vmar_map(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page
     child->object = INIT_OBJECT(OBJECT_KIND_VMAR);
     OBJECT_GET(child); // we return the object
     child->kind = VMAR_KIND_MAPPING;
-    defer if (child != nullptr) vmar_free(child);
+    errdefer FREE(vmar_t, child);
 
-    // actually place it
-    RETHROW(vmar_allocate_static(parent, child, offset, page_count));
+    rwlock_exclusive_guard(&m_vmar_lock);
 
-    // now that we know where we want to be, reserve the
-    // page table region, if this fails we are going to
-    // properly free everything
+    // find for a place to put it
+    RETHROW(vmar_find_place(parent, child, offset, page_count));
+
+    // now try to reserve the page tables for the range
     RETHROW(virt_reserve_page_tables(child->base, child->page_count));
 
-    page_count = 0;
-    *new_child = MOVE(child);
+    // success! we have enough memory, we can now link it and expose it
+    vmar_link_internal(parent, child);
 
-    return SUCCESS;
+    *new_child = child;
+
+    return err;
 }
 
 /**

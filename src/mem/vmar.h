@@ -121,8 +121,10 @@ typedef enum vm_perm {
  *
  * The child must be page aligned, fully contained in the parent and
  * must not overlap any of the children already linked to the parent.
+ *
+ * This function will panic if we fail to place it inside of the tree
  */
-err_t vmar_link(vmar_t* parent, vmar_t* child);
+INIT_CODE void vmar_link(vmar_t* parent, vmar_t* child);
 
 /**
  * Place the child in the parent and link it.
