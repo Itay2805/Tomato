@@ -47,7 +47,7 @@ static volatile struct limine_bootloader_info_request g_bootloader_info_request 
 static volatile struct limine_mp_request m_mp_request = {
     .id = LIMINE_MP_REQUEST_ID,
 #ifdef __x86_64__
-    .flags = LIMINE_MP_RESPONSE_X86_64_X2APIC,
+    .flags = LIMINE_MP_REQUEST_X86_64_X2APIC,
 #endif
 };
 

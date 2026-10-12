@@ -4,14 +4,14 @@
 [[gnu::cold, noreturn]]
 void __list_add_valid_or_report(list_entry_t* new, list_entry_t* prev, list_entry_t* next) {
     ASSERT(next->prev == prev,
-           "list_add corruption. next->prev should be prev (%px), but was %px. (next=%px).\n", prev,
+           "list_add corruption. next->prev should be prev (%p), but was %p. (next=%p).\n", prev,
            next->prev, next);
 
     ASSERT(prev->next == next,
-           "list_add corruption. prev->next should be next (%px), but was %px. (prev=%px).\n", next,
+           "list_add corruption. prev->next should be next (%p), but was %p. (prev=%p).\n", next,
            prev->next, prev);
 
-    ASSERT(new != prev && new != next, "list_add double add: new=%px, prev=%px, next=%px.\n", new,
+    ASSERT(new != prev && new != next, "list_add double add: new=%p, prev=%p, next=%p.\n", new,
            prev, next);
 
     __builtin_trap();
@@ -23,11 +23,11 @@ void __list_del_entry_valid_or_report(list_entry_t* entry) {
     list_entry_t* next = entry->next;
 
     ASSERT(prev->next == entry,
-           "list_del corruption. prev->next should be %px, but was %px. (prev=%px)\n", entry,
+           "list_del corruption. prev->next should be %p, but was %p. (prev=%p)\n", entry,
            prev->next, prev);
 
     ASSERT(next->prev == entry,
-           "list_del corruption. next->prev should be %px, but was %px. (next=%px)\n", entry,
+           "list_del corruption. next->prev should be %p, but was %p. (next=%p)\n", entry,
            next->prev, next);
 
     __builtin_trap();

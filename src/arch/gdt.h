@@ -59,7 +59,7 @@ typedef enum tss_ist {
     TSS_IST_CP,
     TSS_IST_MAX,
 } tss_ist_t;
-static_assert(TSS_IST_MAX < 7);
+static_assert(TSS_IST_MAX <= 7);
 
 /**
  * The GDT entries of the kernel.

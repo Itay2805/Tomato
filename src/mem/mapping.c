@@ -57,11 +57,3 @@ vmar_t g_user_region = {
         .children = RB_ROOT_LINKED,
     },
 };
-
-vmar_t g_null_region = {
-    .object = INIT_OBJECT(OBJECT_KIND_VMAR),
-    .base = 0,
-    .page_count = SIZE_4GB / PAGE_SIZE,
-    .name = "null",
-    .kind = VMAR_KIND_SPECIAL,
-};

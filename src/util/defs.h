@@ -14,16 +14,6 @@
 #define CONCAT(a, b)  _CONCAT(a, b)
 
 /**
- * Emulates move semantics, freeing the previous pointer
- */
-#define MOVE(ptr)                                                                                  \
-    ({                                                                                             \
-        typeof(ptr) ptr__ = ptr;                                                                   \
-        ptr = nullptr;                                                                             \
-        ptr__;                                                                                     \
-    })
-
-/**
  * Mark function as init code, it will get deleted once kernel init is done
  */
 #define INIT_CODE [[gnu::section(".init.text")]]

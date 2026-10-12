@@ -57,7 +57,7 @@ typedef struct vmar {
     /**
      * Debug name
      */
-    char* name;
+    const char* name;
 
     /**
      * The gap, in pages, between this vmar and the sibling before
@@ -131,7 +131,7 @@ INIT_CODE void vmar_link(vmar_t* parent, vmar_t* child);
  *
  * see `vmar_allocate` for more details
  *
- * This consumes the reference of the child
+ * This does not increment the ref-count of the child, so it essentially takes it
  */
 err_t vmar_allocate_static(vmar_t* parent, vmar_t* child, uintptr_t offset, size_t page_count);
 

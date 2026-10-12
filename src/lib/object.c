@@ -1,5 +1,6 @@
 #include "object.h"
 #include "lib/assert.h"
+#include "lib/container_of.h"
 #include "lib/trace.h"
 #include "mem/vmar.h"
 
@@ -10,7 +11,7 @@ void object_free(object_t* object) {
 
     switch (object->kind) {
         case OBJECT_KIND_VMAR: {
-            vmar_free((vmar_t*)object);
+            vmar_free(container_of(object, vmar_t, object));
         } break;
 
         default:

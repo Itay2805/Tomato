@@ -5,8 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from bob.constants import get_configs_path
-
 # How qemu is invoked, anything after `--` is appended to these
 QEMU_FLAGS = [
     "-M",

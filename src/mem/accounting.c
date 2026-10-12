@@ -8,9 +8,6 @@
  * The pages that are neither committed nor reserved, this is the only counter that
  * decides if a reservation or a commit can go through, it can never go below zero
  * which is what keeps committed + reserved <= total.
- *
- * Taking from it acquires and giving to it releases, so whoever takes a page that
- * was just given back is also guaranteed to see it in the allocator.
  */
 static atomic_size_t m_available_pages = 0;
 

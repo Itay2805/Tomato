@@ -78,7 +78,7 @@ void kvsnprintf(char* out, size_t n, const char* fmt, va_list args) {
 
     size_t offset = 0;
     size_t lpref = 0;
-    int written = 0;
+    size_t written = 0;
     bool escape = false;
 
     while (1) {
@@ -108,6 +108,13 @@ void kvsnprintf(char* out, size_t n, const char* fmt, va_list args) {
             // modifiers or final 0
             while (c == 'l') {
                 lpref++;
+                c = fmt[offset++];
+            }
+
+            // size_t is a long, so z is the same as a single l
+            static_assert(sizeof(size_t) == sizeof(long));
+            if (c == 'z' && lpref == 0) {
+                lpref = 1;
                 c = fmt[offset++];
             }
 
@@ -166,8 +173,12 @@ void kvsnprintf(char* out, size_t n, const char* fmt, va_list args) {
                 continue;
 
             } else {
-                escape = true;
-                goto do_escape;
+                // unknown conversion, print it verbatim instead of eating the text
+                // after it, the % is right before the escape sequence
+                outstr = fmt - 1;
+                len = c == 0 ? offset : offset + 1;
+                width = 0;
+                goto flush_str;
             }
 
             len = strlen(outstr);
@@ -183,22 +194,21 @@ void kvsnprintf(char* out, size_t n, const char* fmt, va_list args) {
             len = offset - 1;
 
         flush_str:
-            if (n) {
-                size_t w = len < n ? len : n;
-                n -= w;
+            // pad up to the width and then copy the string, whatever doesn't
+            // fit in the buffer is dropped but still counted in written
+            size_t pad_len = width > len ? width - len : 0;
+            size_t p = pad_len < n ? pad_len : n;
+            memset(out, pad, p);
+            out += p;
+            n -= p;
 
-                while (width-- > w) {
-                    *out++ = pad;
-                    written += 1;
-                }
+            size_t w = len < n ? len : n;
+            memcpy(out, outstr, w);
+            out += w;
+            n -= w;
 
-                memcpy(out, outstr, w);
-                out += w;
-            }
+            written += pad_len + len;
 
-            written += len;
-
-        do_escape:
             if (c == 0)
                 break;
 
@@ -211,7 +221,9 @@ void kvsnprintf(char* out, size_t n, const char* fmt, va_list args) {
     }
 
     // ensure it always ends with a null terminator
-    buf[(size_t)written < size ? (size_t)written : size - 1] = '\0';
+    if (size != 0) {
+        buf[written < size ? written : size - 1] = '\0';
+    }
 }
 
 void ksnprintf(char* buffer, size_t size, const char* format, ...) {

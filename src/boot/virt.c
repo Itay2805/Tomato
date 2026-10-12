@@ -105,8 +105,15 @@ static int init_kernel_region() {
         case LIMINE_PAGING_MODE_X86_64_4LVL:
             g_kernel_region.base = (void*)0xFFFF800000000000;
             g_kernel_region.page_count = SIZE_128TB / PAGE_SIZE;
-            g_user_region.base = 0;
-            g_user_region.page_count = SIZE_128TB / PAGE_SIZE;
+
+            // we save the first 4gb to ensure nothing
+            // can be mapped to zero
+            g_user_region.base = (void*)SIZE_4GB;
+
+            // we don't allow to map the last canonical page to deal with
+            // the issues that come from Intel's SYSRET implementation faulting
+            // on a non-canonical rip, this ensures we just can't have that issue
+            g_user_region.page_count = (SIZE_128TB / PAGE_SIZE) - PAGE_SIZE;
             return 4;
 #else
     #error Unknown arch

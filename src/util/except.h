@@ -4,7 +4,6 @@
 #include "lib/cpp_magic.h"
 #include "lib/trace.h"
 #include "tomato/err.h"
-#include "util/defs.h"
 
 #include <stddefer.h>
 

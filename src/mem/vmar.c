@@ -157,7 +157,6 @@ static err_t vmar_check_in_parent(vmar_t* parent, vmar_t* child) {
 static void vmar_link_internal(vmar_t* parent, vmar_t* child) {
     ASSERT(parent->kind == VMAR_KIND_REGION);
     ASSERT(child->parent == nullptr);
-    ASSERT(((uintptr_t)child->base & PAGE_MASK) == 0);
 
     // insert into the tree, until we know who comes before us we contribute
     // no gap at all, which keeps the augmented data consistent while the
@@ -238,6 +237,9 @@ static err_t vmar_find_place(vmar_t* parent, vmar_t* child, uintptr_t offset, si
         child->base = (void*)(page << PAGE_SHIFT);
 
     } else {
+        // ensure the offset is page aligned
+        CHECK(((uintptr_t)offset & PAGE_MASK) == 0);
+
         // at a fixed offset from the start of the parent, linking
         // will verify the range is actually inside of it
         uintptr_t base;
@@ -397,7 +399,8 @@ void vmar_unmap(vmar_t* vmar) {
 }
 
 void vmar_free(vmar_t* vmar) {
-    // must be mapped before reaching this point
+    // the only way to get here is that we already called the unmap
+    // to unlink and drop the vmar tree owned reference
     ASSERT(vmar->unmapped);
     FREE(vmar_t, vmar);
 }

@@ -24,7 +24,6 @@ extern vmar_t g_kernel_data_mapping;
 
 // The user region
 extern vmar_t g_user_region;
-extern vmar_t g_null_region;
 
 static inline void* phys_to_direct(uint64_t phys) {
     DEBUG_ASSERT(phys <= g_direct_map.page_count * PAGE_SIZE);

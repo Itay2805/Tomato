@@ -8,7 +8,7 @@ LATE_RO extern void* g_page_table;
 LATE_RO extern size_t g_page_table_levels;
 
 /**
- * Mark a global page as marked
+ * Mark the page of the address as a global page
  */
 void virt_make_global(void* addr);
 
