@@ -21,6 +21,11 @@ void virt_make_global(void* addr);
 err_t virt_reserve_page_tables(void* base, size_t page_count);
 
 /**
+ * Handle a page fault that happened, returns true if handled successfully, false otherwise
+ */
+err_t virt_page_fault_handler(void* addr, uint64_t error_code);
+
+/**
  * Free the allocated region
  */
 void virt_free(void* base, size_t page_count);

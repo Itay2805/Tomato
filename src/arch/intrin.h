@@ -91,3 +91,19 @@ static inline void __writecr8(const unsigned long long Data) {
 static inline void cpu_relax() {
     __builtin_ia32_pause();
 }
+
+#define RFLAGS_CF  BIT0
+#define RFLAGS_PF  BIT2
+#define RFLAGS_AF  BIT4
+#define RFLAGS_ZF  BIT6
+#define RFLAGS_SF  BIT7
+#define RFLAGS_TF  BIT8
+#define RFLAGS_IF  BIT9
+#define RFLAGS_DF  BIT10
+#define RFLAGS_OF  BIT11
+#define RFLAGS_NT  BIT14
+#define RFLAGS_VM  BIT16
+#define RFLAGS_AC  BIT17
+#define RFLAGS_VIF BIT18
+#define RFLAGS_VIP BIT19
+#define RFLAGS_ID  BIT20

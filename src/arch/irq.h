@@ -1,6 +1,7 @@
 #pragma once
 
 #include "arch/intrin.h"
+#include "util/defs.h"
 #include <stddef.h>
 
 static inline void irq_enable() {
@@ -11,7 +12,7 @@ static inline void irq_disable() {
 }
 
 static inline bool irq_enabled() {
-    return __builtin_ia32_readeflags_u64() & (1 << 9);
+    return __builtin_ia32_readeflags_u64() & BIT9;
 }
 
 typedef struct irq_state {

@@ -4,12 +4,16 @@
 #include "boot/virt.h"
 #include "lib/assert.h"
 #include "lib/object.h"
+#include "lib/snprintf.h"
+#include "lib/sp.h"
 #include "lib/trace.h"
 #include "limine.h"
 #include "mem/mapping.h"
+#include "mem/phys.h"
 #include "mem/vmar.h"
 #include "sync/smp.h"
-#include "util/sp.h"
+#include "util/defs.h"
+
 #include <immintrin.h>
 #include <stdatomic.h>
 #include <stddef.h>
@@ -54,14 +58,17 @@ static volatile struct limine_mp_request m_mp_request = {
 static atomic_size_t m_core_init_finished = 0;
 
 static void core_entry(struct limine_mp_info* info) {
-    // perform cpu init per core, this also
-    // handles virtual memory stuff
-    arch_init_per_core();
+    size_t cpu_id = info->extra_argument;
+    TRACE("\tCPU #%zu", cpu_id);
 
-    TRACE("\tCPU #%ld", info->extra_argument);
+    // perform the arch cpu init, this will also fixup the cpu locals
+    // so we can use them, so we want to call this as early as we can
+    arch_init_per_core(cpu_id);
 
+    // TODO: rest of init
+
+    // mark that we finished running the core
     m_core_init_finished++;
-
     for (;;)
         asm("hlt");
 }
@@ -89,6 +96,36 @@ static void start_cores() {
     // wait until all the cores are done initializing
     while (m_core_init_finished != g_cpu_count)
         ;
+}
+
+/////////////////////////////////////////////////////////////////////////
+// Per-cpu locals allocation
+/////////////////////////////////////////////////////////////////////////
+
+extern char __start_cpu_locals[];
+extern char __stop_cpu_locals[];
+
+static void alloc_cpu_locals() {
+    // this should be small enough that using the buddy should be fine
+    g_cpu_locals_offsets = phys_alloc(g_cpu_count * sizeof(void*));
+    ASSERT(g_cpu_locals_offsets != nullptr);
+
+    // the locals of the first core live in the kernel itself, so zero offset,
+    // we allocate the rest elsewhere
+    g_cpu_locals_offsets[0] = 0;
+    g_cpu_locals_offset = 0;
+
+    size_t locals_page_count = DIV_ROUND_UP(__stop_cpu_locals - __start_cpu_locals, PAGE_SIZE);
+    for (size_t i = 1; i < g_cpu_count; i++) {
+        vmar_t* vmar = nullptr;
+        ASSERT_SUCCESS(vmar_map(&g_kernel_region, &vmar, VMAR_ANY_OFFSET, locals_page_count));
+        ksnprintf(vmar->name, sizeof(vmar->name), "cpu-locals-%zu", i);
+
+        // set the offset and local offset of the core
+        ptrdiff_t offset = vmar->base - (void*)__start_cpu_locals;
+        g_cpu_locals_offsets[i] = offset;
+        *CPU_LOCAL_PTR_OF(g_cpu_locals_offset, i) = offset;
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////
@@ -146,8 +183,12 @@ void _start() {
         g_cpu_count = 1;
     }
 
-    // finalize arch init
+    // finalize arch init, this can be called before alloc locals
+    // before we assume the first locals are part of the kernel
     arch_init();
+
+    // allocate all of the cpu locals
+    alloc_cpu_locals();
 
     // and now we can start the rest of the system
     start_cores();

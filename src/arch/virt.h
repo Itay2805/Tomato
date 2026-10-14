@@ -40,6 +40,18 @@
 #define IA32_PG_CACHE_WC_2M (IA32_PG_PAT_2M | IA32_PG_WT)
 
 /**
+ * Page fault error code bits
+ */
+#define IA32_PF_EC_PROT  BIT0
+#define IA32_PF_EC_WRITE BIT1
+#define IA32_PF_EC_USER  BIT2
+#define IA32_PF_EC_RSVD  BIT3
+#define IA32_PF_EC_INSTR BIT4
+#define IA32_PF_EC_PK    BIT5
+#define IA32_PF_EC_SHSTK BIT6
+#define IA32_PF_EC_SGX   BIT15
+
+/**
  * Masking for page table addresses
  */
 #define PAGING_4K_ADDRESS_MASK 0x000FFFFFFFFFF000ull

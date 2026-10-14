@@ -11,6 +11,7 @@
 #include "mem/accounting.h"
 #include "mem/alloc.h"
 #include "mem/virt.h"
+#include "sync/mutex.h"
 #include "sync/rwlock.h"
 #include "tomato/err.h"
 #include "util/except.h"
@@ -324,6 +325,57 @@ err_t vmar_map(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page
 }
 
 /**
+ * Orders an address against the children, the child that contains
+ * the address compares as equal
+ */
+static int vmar_address_find_cmp(const void* key, const rb_node_t* exist) {
+    size_t page = (uintptr_t)key >> PAGE_SHIFT;
+    const vmar_t* vmar = vmar_of_rb(exist);
+    if (page < vmar_first_page(vmar)) {
+        return -1;
+    } else if (page >= vmar_end_page(vmar)) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+static vmar_t* vmar_find_internal(vmar_t* root, void* address) {
+    // must be a region
+    ASSERT(root->kind == VMAR_KIND_REGION);
+
+    // find the child that contains the address
+    rb_node_t* rb = rb_find(address, &root->region.children.rb_root, vmar_address_find_cmp);
+    if (rb == nullptr) {
+        return nullptr;
+    }
+    return vmar_of_rb(rb);
+}
+
+vmar_t* vmar_find_mapping(vmar_t* root, void* address) {
+    rwlock_shared_guard(&m_vmar_lock);
+
+    // find the leaf entry
+    vmar_t* vmar = root;
+    do {
+        vmar = vmar_find_internal(vmar, address);
+        if (vmar == nullptr) {
+            return nullptr;
+        }
+    } while (vmar->kind == VMAR_KIND_REGION);
+
+    // increase the ref count
+    OBJECT_GET(vmar);
+
+    // if its a mapping lock it
+    if (vmar->kind == VMAR_KIND_MAPPING) {
+        mutex_lock(&vmar->mapping.page_table_lock);
+    }
+
+    return vmar;
+}
+
+/**
  * Perform the actual unmap logic, assumes we are
  * under the vmar exclusive lock.
  *
@@ -358,7 +410,7 @@ static void vmar_unmap_internal(vmar_t* vmar) {
     } else if (vmar->kind == VMAR_KIND_MAPPING) {
         // take the lock for the mapping, so no one can access
         // it at the same time as we are modifying it
-        rwlock_exclusive_guard(&vmar->mapping.page_table_lock);
+        mutex_guard(&vmar->mapping.page_table_lock);
 
         virt_free(vmar->base, vmar->page_count);
 

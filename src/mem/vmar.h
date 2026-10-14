@@ -4,6 +4,7 @@
 #include "lib/object.h"
 #include "lib/rbtree/rbtree.h"
 #include "lib/rbtree/rbtree_types.h"
+#include "sync/mutex.h"
 #include "sync/rwlock.h"
 #include "util/except.h"
 #include <stdint.h>
@@ -55,11 +56,6 @@ typedef struct vmar {
     struct vmar* parent;
 
     /**
-     * Debug name
-     */
-    const char* name;
-
-    /**
      * The gap, in pages, between this vmar and the sibling before
      * it (or the start of the parent if it is the first one)
      */
@@ -94,9 +90,14 @@ typedef struct vmar {
              * A lock that protects the page table
              * range of the mapping
              */
-            rwlock_t page_table_lock;
+            mutex_t page_table_lock;
         } mapping;
     };
+
+    /**
+     * Debug name
+     */
+    char name[128];
 } vmar_t;
 
 [[clang::always_inline]]
@@ -150,6 +151,15 @@ err_t vmar_allocate(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t
  * Create an anonymous mapping, allocating new memory lazily as required
  */
 err_t vmar_map(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page_count);
+
+/**
+ * Find a mapping from the root at the given address, returning the vmar of the mapping
+ * with a new reference and the mapping locked so it can't get unmapped while you are
+ * holding it.
+ *
+ * NOTE: this can return a SPECIAL mapping, so you need to check
+ */
+vmar_t* vmar_find_mapping(vmar_t* root, void* address);
 
 /**
  * Free a vmar
