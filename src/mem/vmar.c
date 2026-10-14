@@ -325,6 +325,63 @@ err_t vmar_map(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page
 }
 
 /**
+ * Orders an address against the children, the child that contains
+ * the address compares as equal
+ */
+static int vmar_address_find_cmp(const void* key, const rb_node_t* exist) {
+    size_t page = (uintptr_t)key >> PAGE_SHIFT;
+    const vmar_t* vmar = vmar_of_rb(exist);
+    if (page < vmar_first_page(vmar)) {
+        return -1;
+    } else if (page >= vmar_end_page(vmar)) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+static vmar_t* vmar_find_internal(vmar_t* root, void* address) {
+    // must be a region
+    ASSERT(root->kind == VMAR_KIND_REGION);
+
+    // find the child that contains the address
+    rb_node_t* rb = rb_find(address, &root->region.children.rb_root, vmar_address_find_cmp);
+    if (rb == nullptr) {
+        return nullptr;
+    }
+    return vmar_of_rb(rb);
+}
+
+vmar_t* vmar_find_mapping(vmar_t* root, void* address) {
+    rwlock_shared_guard(&m_vmar_lock);
+
+    // find the leaf entry
+    vmar_t* vmar = root;
+    do {
+        vmar = vmar_find_internal(vmar, address);
+        if (vmar == nullptr) {
+            return nullptr;
+        }
+    } while (vmar->kind == VMAR_KIND_REGION);
+
+    if (vmar->kind != VMAR_KIND_MAPPING) {
+        return nullptr;
+    }
+
+    // we take a reference to ensure that the vmar stays alive while we
+    // deal with it, while in theory the lock keeps it alive, mutex_unlock
+    // might continue to touch the objet even after the mutex is free for the
+    // taking, and we don't want it to lose the object at that moment
+    OBJECT_GET(vmar);
+
+    // take a mapping lock, this will prevent the mapping from
+    // being unmapped while we deal with it
+    mutex_lock(&vmar->mapping.page_table_lock);
+
+    return vmar;
+}
+
+/**
  * Perform the actual unmap logic, assumes we are
  * under the vmar exclusive lock.
  *

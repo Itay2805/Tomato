@@ -148,6 +148,13 @@ err_t vmar_allocate(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t
 err_t vmar_map(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page_count);
 
 /**
+ * Find a mapping from the root at the given address, returning the vmar of the mapping
+ * with a new reference and the mapping locked so it can't get unmapped while you are
+ * holding it.
+ */
+vmar_t* vmar_find_mapping(vmar_t* root, void* address);
+
+/**
  * Free a vmar
  *
  * DO NOT CALL MANUALLY

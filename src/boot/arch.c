@@ -4,6 +4,7 @@
 #include "arch/msr.h"
 #include "boot/gdt.h"
 #include "boot/virt.h"
+#include "irq/intr.h"
 #include "lib/assert.h"
 #include "mem/phys.h"
 #include "util/defs.h"
@@ -123,6 +124,7 @@ void arch_early_init(void) {
 void arch_init(void) {
     // setup the gdt for the current core
     gdt_init();
+    intr_init();
 }
 
 void arch_init_per_core(void) {
@@ -134,4 +136,5 @@ void arch_init_per_core(void) {
 
     // set the gdt
     gdt_init();
+    intr_init();
 }
