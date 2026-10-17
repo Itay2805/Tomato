@@ -113,7 +113,7 @@ static int init_kernel_region() {
             // we don't allow to map the last canonical page to deal with
             // the issues that come from Intel's SYSRET implementation faulting
             // on a non-canonical rip, this ensures we just can't have that issue
-            g_user_region.page_count = (SIZE_128TB / PAGE_SIZE) - PAGE_SIZE;
+            g_user_region.page_count = ((SIZE_128TB - SIZE_4GB - PAGE_SIZE) / PAGE_SIZE);
             return 4;
 #else
     #error Unknown arch

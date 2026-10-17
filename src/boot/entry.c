@@ -78,10 +78,12 @@ static void start_cores() {
         return;
     }
 
+    size_t cpu_id = 1; // id 0 is reserved for the BSP
+
     TRACE("CPU Startup:");
     for (size_t i = 0; i < g_cpu_count; i++) {
         struct limine_mp_info* info = m_mp_request.response->cpus[i];
-        info->extra_argument = i;
+        info->extra_argument = cpu_id++;
 
         if (info->lapic_id == m_mp_request.response->bsp_lapic_id) {
             // this is the current core, nothing to do

@@ -155,7 +155,7 @@ err_t virt_page_fault_handler(void* addr, uint64_t error_code) {
     uint64_t new_pte = IA32_PG_P | IA32_PG_A | direct_to_phys(page);
     new_pte |= IA32_PG_RW | IA32_PG_D;
     new_pte |= IA32_PG_NX;
-    if (error_code & IA32_PF_EC_USER) {
+    if (root == &g_user_region) {
         new_pte |= IA32_PG_U;
     }
     *pte = new_pte;

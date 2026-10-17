@@ -26,13 +26,13 @@ extern vmar_t g_kernel_data_mapping;
 extern vmar_t g_user_region;
 
 static inline void* phys_to_direct(uint64_t phys) {
-    DEBUG_ASSERT(phys <= g_direct_map.page_count * PAGE_SIZE);
+    DEBUG_ASSERT(phys < g_direct_map.page_count * PAGE_SIZE);
     return (void*)(g_direct_map.base + phys);
 }
 
 static inline uint64_t direct_to_phys(void* ptr) {
     DEBUG_ASSERT(g_direct_map.base <= ptr);
     uint64_t phys = (uintptr_t)ptr - (uintptr_t)g_direct_map.base;
-    DEBUG_ASSERT(phys <= g_direct_map.page_count * PAGE_SIZE);
+    DEBUG_ASSERT(phys < g_direct_map.page_count * PAGE_SIZE);
     return phys;
 }

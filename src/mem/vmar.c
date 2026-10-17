@@ -512,7 +512,7 @@ static const char* vmar_kind_str(vmar_kind_t kind) {
 
 static void vmar_dump_line(vmar_t* vmar, const char* prefix, const char* branch) {
     const char* name = vmar->name;
-    if (name == nullptr) {
+    if (name[0] == '\0') {
         name = "<anonymous>";
     }
 

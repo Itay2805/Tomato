@@ -43,6 +43,7 @@ static void tss_init() {
 
     // get the tss address
     tss64_t* tss = CPU_LOCAL_PTR(m_tss);
+    tss->iopb_offset = sizeof(*tss);
 
     uintptr_t base = (uintptr_t)tss;
     uint32_t limit = sizeof(*tss);

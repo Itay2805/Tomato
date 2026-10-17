@@ -35,6 +35,15 @@ typedef struct [[gnu::packed]] idt {
     idt_entry_t* base;
 } idt_t;
 
+/**
+ * Swap the GS base if not coming from kernel, otherwise leave as is
+ */
+static void swapgs(interrupt_frame_t* frame) {
+    if (frame->cs != GDT_KERNEL_CODE) {
+        asm("swapgs");
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////but
 // Exception dumping
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -101,8 +110,8 @@ static const char* get_segment_name(uint64_t segment) {
     }
 }
 
-[[gnu::cold]]
-static void exception_panic_handler(interrupt_frame_t* frame, uint64_t error, uint8_t exception) {
+static void common_exception_handler(interrupt_frame_t* frame, uint64_t error, uint8_t exception) {
+    swapgs(frame);
 
     // reset the spinlock so we can print
     ERROR("");
@@ -159,38 +168,16 @@ static void exception_panic_handler(interrupt_frame_t* frame, uint64_t error, ui
 // Exception handling
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/**
- * Swap the GS base if not coming from kernel, otherwise leave as is
- */
-static void swapgs(interrupt_frame_t* frame) {
-    if (frame->cs != GDT_KERNEL_CODE) {
-        asm("swapgs");
-    }
-}
-
-static void exception_common_handler(interrupt_frame_t* frame, uint64_t error, uint8_t exception) {
-    // restore interrupt flag (keep disabled if was disabled
-    // but we got an exception)
+[[gnu::interrupt()]]
+static void page_fault_handler(interrupt_frame_t* frame, uint64_t error_code) {
     swapgs(frame);
-    if (frame->rflags & BIT9) {
+    void* fault_address = (void*)__readcr2();
+    if (frame->rflags & RFLAGS_IF) {
         irq_enable();
     }
 
-    // handle it, its most likely a page fault that will be successfully handled,
-    // otherwise we go into the error path
-    if (LIKELY(exception == EXCEPT_IA32_PAGE_FAULT)) {
-        err_t err = virt_page_fault_handler((void*)__readcr2(), error);
-        if (LIKELY(!IS_ERROR(err))) {
-            goto exit;
-        }
-    }
+    ASSERT_SUCCESS(virt_page_fault_handler(fault_address, error_code));
 
-    // fallback to
-    exception_panic_handler(frame, error, exception);
-
-exit:
-    // now we need to swapgs again atomically, the iretq
-    // will restore the interrupt flag
     irq_disable();
     swapgs(frame);
 }
@@ -198,13 +185,13 @@ exit:
 #define EXCEPTION_STUB(num)                                                                        \
     [[gnu::interrupt()]]                                                                           \
     static void exception_handler_##num(interrupt_frame_t* frame) {                                \
-        exception_common_handler(frame, 0, num);                                                   \
+        common_exception_handler(frame, 0, num);                                                   \
     }
 
 #define EXCEPTION_ERROR_STUB(num)                                                                  \
     [[gnu::interrupt()]]                                                                           \
     static void exception_handler_##num(interrupt_frame_t* frame, uint64_t error) {                \
-        exception_common_handler(frame, error, num);                                               \
+        common_exception_handler(frame, error, num);                                               \
     }
 
 EXCEPTION_STUB(0x00);
@@ -221,7 +208,6 @@ EXCEPTION_ERROR_STUB(0x0A);
 EXCEPTION_ERROR_STUB(0x0B);
 EXCEPTION_ERROR_STUB(0x0C);
 EXCEPTION_ERROR_STUB(0x0D);
-EXCEPTION_ERROR_STUB(0x0E);
 EXCEPTION_STUB(0x0F);
 EXCEPTION_STUB(0x10);
 EXCEPTION_ERROR_STUB(0x11);
@@ -277,7 +263,7 @@ INIT_CODE void idt_init() {
     idt_set_handler(EXCEPT_IA32_SEG_NOT_PRESENT, exception_handler_0x0B);
     idt_set_handler(EXCEPT_IA32_STACK_FAULT, exception_handler_0x0C);
     idt_set_handler(EXCEPT_IA32_GP_FAULT, exception_handler_0x0D);
-    idt_set_handler(EXCEPT_IA32_PAGE_FAULT, exception_handler_0x0E);
+    idt_set_handler(EXCEPT_IA32_PAGE_FAULT, page_fault_handler);
     idt_set_handler(0x0F, exception_handler_0x0F);
     idt_set_handler(EXCEPT_IA32_FP_ERROR, exception_handler_0x10);
     idt_set_handler(EXCEPT_IA32_ALIGNMENT_CHECK, exception_handler_0x11);
