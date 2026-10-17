@@ -55,7 +55,7 @@ static volatile struct limine_mp_request m_mp_request = {
 #endif
 };
 
-static atomic_size_t m_core_init_finished = 0;
+static atomic_bool m_core_init_finished = false;
 
 static void core_entry(struct limine_mp_info* info) {
     size_t cpu_id = info->extra_argument;
@@ -63,7 +63,7 @@ static void core_entry(struct limine_mp_info* info) {
     arch_init_per_core(cpu_id);
 
     // let the BSP know we are done
-    m_core_init_finished++;
+    m_core_init_finished = true;
 
     for (;;)
         asm("hlt");
@@ -77,6 +77,8 @@ static void start_cores(void) {
 
     size_t cpu_id = 1; // id 0 is reserved for the BSP
 
+    // we start the cores one by one because we don't want any mutexes to trigger
+    // the slow path before we get into a threaded environment
     TRACE("CPU Startup:");
     for (size_t i = 0; i < mp->cpu_count; i++) {
         struct limine_mp_info* info = mp->cpus[i];
@@ -90,13 +92,12 @@ static void start_cores(void) {
             info->extra_argument = cpu_id++;
 
             _Atomic(limine_goto_address)* goto_address = (void*)&info->goto_address;
+            m_core_init_finished = false;
             atomic_store_explicit(goto_address, core_entry, memory_order_release);
+            while (!m_core_init_finished)
+                ;
         }
     }
-
-    // wait until all the other cores are done initializing
-    while (m_core_init_finished != mp->cpu_count - 1)
-        ;
 }
 
 /////////////////////////////////////////////////////////////////////////

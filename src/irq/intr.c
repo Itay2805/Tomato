@@ -246,26 +246,30 @@ LATE_RO static idt_entry_t m_idt_entries[256];
 /**
  * Set a single idt entry
  */
-INIT_CODE void intr_set_handler(uint8_t vector, void* func) {
+INIT_CODE static void intr_set_handler_ist(uint8_t vector, void* func, tss_ist_t ist) {
     m_idt_entries[vector].handler_low = (uint16_t)((uintptr_t)func & 0xFFFF);
     m_idt_entries[vector].handler_high = (uint64_t)((uintptr_t)func >> 16);
     m_idt_entries[vector].gate_type = IDT_TYPE_INTERRUPT_32;
     m_idt_entries[vector].selector = GDT_KERNEL_CODE;
     m_idt_entries[vector].present = 1;
-    m_idt_entries[vector].ist = 0;
+    m_idt_entries[vector].ist = ist;
+}
+
+INIT_CODE void intr_set_handler(uint8_t vector, void* func) {
+    intr_set_handler_ist(vector, func, TSS_IST_NONE);
 }
 
 INIT_CODE void intr_init(void) {
     // set all of the exception handlers
     intr_set_handler(EXCEPT_IA32_DIVIDE_ERROR, exception_handler_0x00);
-    intr_set_handler(EXCEPT_IA32_DEBUG, exception_handler_0x01);
-    intr_set_handler(EXCEPT_IA32_NMI, exception_handler_0x02);
+    intr_set_handler_ist(EXCEPT_IA32_DEBUG, exception_handler_0x01, TSS_IST_DB);
+    intr_set_handler_ist(EXCEPT_IA32_NMI, exception_handler_0x02, TSS_IST_NMI);
     intr_set_handler(EXCEPT_IA32_BREAKPOINT, exception_handler_0x03);
     intr_set_handler(EXCEPT_IA32_OVERFLOW, exception_handler_0x04);
     intr_set_handler(EXCEPT_IA32_BOUND, exception_handler_0x05);
     intr_set_handler(EXCEPT_IA32_INVALID_OPCODE, exception_handler_0x06);
     intr_set_handler(0x07, exception_handler_0x07);
-    intr_set_handler(EXCEPT_IA32_DOUBLE_FAULT, exception_handler_0x08);
+    intr_set_handler_ist(EXCEPT_IA32_DOUBLE_FAULT, exception_handler_0x08, TSS_IST_DF);
     intr_set_handler(0x09, exception_handler_0x09);
     intr_set_handler(EXCEPT_IA32_INVALID_TSS, exception_handler_0x0A);
     intr_set_handler(EXCEPT_IA32_SEG_NOT_PRESENT, exception_handler_0x0B);
@@ -275,10 +279,10 @@ INIT_CODE void intr_init(void) {
     intr_set_handler(0x0F, exception_handler_0x0F);
     intr_set_handler(EXCEPT_IA32_FP_ERROR, exception_handler_0x10);
     intr_set_handler(EXCEPT_IA32_ALIGNMENT_CHECK, exception_handler_0x11);
-    intr_set_handler(EXCEPT_IA32_MACHINE_CHECK, exception_handler_0x12);
+    intr_set_handler_ist(EXCEPT_IA32_MACHINE_CHECK, exception_handler_0x12, TSS_IST_MCE);
     intr_set_handler(EXCEPT_IA32_SIMD, exception_handler_0x13);
     intr_set_handler(0x14, exception_handler_0x14);
-    intr_set_handler(EXCEPT_IA32_CONTROL_PROTECTION, exception_handler_0x15);
+    intr_set_handler_ist(EXCEPT_IA32_CONTROL_PROTECTION, exception_handler_0x15, TSS_IST_CP);
     intr_set_handler(0x16, exception_handler_0x16);
     intr_set_handler(0x17, exception_handler_0x17);
     intr_set_handler(0x18, exception_handler_0x18);

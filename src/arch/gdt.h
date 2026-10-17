@@ -48,6 +48,21 @@ typedef struct [[gnu::packed]] gdt_entries {
 } gdt_entries_t;
 
 /**
+ * The interrupt stack allocation, mostly to deal with
+ * unmaskable interrupts
+ */
+typedef enum tss_ist {
+    TSS_IST_NONE,
+    TSS_IST_DF,
+    TSS_IST_NMI,
+    TSS_IST_DB,
+    TSS_IST_MCE,
+    TSS_IST_CP,
+    TSS_IST_MAX,
+} tss_ist_t;
+static_assert(TSS_IST_MAX - 1 <= 7);
+
+/**
  * The GDT entries of the kernel.
  */
 LATE_RO extern gdt_entries_t g_gdt_entries;
