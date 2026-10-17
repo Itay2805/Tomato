@@ -110,8 +110,8 @@ static const char* get_segment_name(uint64_t segment) {
     }
 }
 
-static void common_exception_handler(interrupt_frame_t* frame, uint64_t error, uint8_t exception) {
-    swapgs(frame);
+static void panic_exception_handler(interrupt_frame_t* frame, uint64_t error, uint8_t exception) {
+    irq_disable();
 
     // reset the spinlock so we can print
     ERROR("");
@@ -168,6 +168,11 @@ static void common_exception_handler(interrupt_frame_t* frame, uint64_t error, u
 // Exception handling
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+static void common_exception_handler(interrupt_frame_t* frame, uint64_t error, uint8_t exception) {
+    swapgs(frame);
+    panic_exception_handler(frame, error, exception);
+}
+
 [[gnu::interrupt()]]
 static void page_fault_handler(interrupt_frame_t* frame, uint64_t error_code) {
     swapgs(frame);
@@ -176,7 +181,9 @@ static void page_fault_handler(interrupt_frame_t* frame, uint64_t error_code) {
         irq_enable();
     }
 
-    ASSERT_SUCCESS(virt_page_fault_handler(fault_address, error_code));
+    if (UNLIKELY(IS_ERROR(virt_page_fault_handler(fault_address, error_code)))) {
+        panic_exception_handler(frame, error_code, EXCEPT_IA32_PAGE_FAULT);
+    }
 
     irq_disable();
     swapgs(frame);

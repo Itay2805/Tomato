@@ -4,10 +4,10 @@
 #include "lib/trace.h"
 #include "mem/vmar.h"
 
-#include <stdatomic.h>
+#include "util/atomic.h"
 
 void object_free(object_t* object) {
-    atomic_thread_fence(memory_order_acquire);
+    atomic_fence_acquire();
 
     switch (object->kind) {
         case OBJECT_KIND_VMAR: {

@@ -14,6 +14,7 @@
 #include "sync/mutex.h"
 #include "sync/rwlock.h"
 #include "tomato/err.h"
+#include "util/defs.h"
 #include "util/except.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -324,6 +325,25 @@ err_t vmar_map(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page
     return err;
 }
 
+err_t vmar_populate(vmar_t* vmar) {
+    CHECK_ARG(vmar->kind == VMAR_KIND_MAPPING);
+
+    // the shared lock will keep the vmar alive while the function is running
+    rwlock_shared_guard(&m_vmar_lock);
+
+    // take a lock on the mapping itself, to prevent others
+    // from touching the same region
+    mutex_guard(&vmar->mapping.page_table_lock);
+
+    // the object must not be unmapped at this point
+    CHECK(!vmar->unmapped);
+
+    // populate the entire vmar
+    virt_populate(vmar->base, vmar->page_count);
+
+    return SUCCESS;
+}
+
 /**
  * Orders an address against the children, the child that contains
  * the address compares as equal
@@ -364,13 +384,19 @@ vmar_t* vmar_find_mapping(vmar_t* root, void* address) {
         }
     } while (vmar->kind == VMAR_KIND_REGION);
 
-    // increase the ref count
+    if (vmar->kind != VMAR_KIND_MAPPING) {
+        return nullptr;
+    }
+
+    // we take a reference to ensure that the vmar stays alive while we
+    // deal with it, while in theory the lock keeps it alive, mutex_unlock
+    // might continue to touch the objet even after the mutex is free for the
+    // taking, and we don't want it to lose the object at that moment
     OBJECT_GET(vmar);
 
-    // if its a mapping lock it
-    if (vmar->kind == VMAR_KIND_MAPPING) {
-        mutex_lock(&vmar->mapping.page_table_lock);
-    }
+    // take a mapping lock, this will prevent the mapping from
+    // being unmapped while we deal with it
+    mutex_lock(&vmar->mapping.page_table_lock);
 
     return vmar;
 }

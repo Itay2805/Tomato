@@ -1,7 +1,7 @@
 #pragma once
 
 #include "lib/assert.h"
-#include <stdatomic.h>
+#include "util/atomic.h"
 typedef enum object_kind {
     OBJECT_KIND_VMAR,
 } object_kind_t;
@@ -21,13 +21,13 @@ typedef struct kobject {
 #define INIT_OBJECT(KIND) ((object_t){ .kind = KIND, .ref_count = 1 })
 
 static inline void object_get(object_t* object) {
-    atomic_fetch_add_explicit(&object->ref_count, 1, memory_order_acquire);
+    atomic_fetch_add_acquire(&object->ref_count, 1);
 }
 
 void object_free(object_t* object);
 
 static inline void object_put(object_t* object) {
-    size_t ref_count = atomic_fetch_sub_explicit(&object->ref_count, 1, memory_order_release);
+    size_t ref_count = atomic_fetch_sub_release(&object->ref_count, 1);
     ASSERT(ref_count >= 1);
 
     if (ref_count == 1) {

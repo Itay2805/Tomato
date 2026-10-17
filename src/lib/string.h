@@ -5,3 +5,4 @@
 #define memmove __builtin_memmove
 
 #define strlen __builtin_strlen
+#define strcpy __builtin_strcpy
