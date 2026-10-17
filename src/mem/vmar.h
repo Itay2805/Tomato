@@ -106,6 +106,12 @@ typedef struct vmar {
      */
     bool unmapped;
 
+    /**
+     * Is the mapping locked, aka it
+     * can't be unmapped
+     */
+    bool locked;
+
     union {
         struct {
             /**
@@ -188,6 +194,11 @@ err_t vmar_map(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page
  * Populate the entire vmar right now
  */
 err_t vmar_populate(vmar_t* vmar);
+
+/**
+ * Pin and lock the vmar and all its children
+ */
+void vmar_lock(vmar_t* vmar);
 
 /**
  * Find a mapping from the root at the given address, returning the vmar of the mapping

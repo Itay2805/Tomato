@@ -29,7 +29,7 @@ err_t virt_reserve_page_tables(void* base, size_t page_count);
  *
  * NOTE: this does not look at the vmars at all
  */
-void virt_populate(void* addr, size_t page_count);
+void virt_populate(void* addr, size_t page_count, bool global);
 
 /**
  * Handle a page fault that happened, returns true if handled successfully, false otherwise

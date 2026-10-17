@@ -132,6 +132,8 @@ static void alloc_cpu_locals(void) {
     for (size_t i = 1; i < cpu_count; i++) {
         vmar_t* vmar = nullptr;
         ASSERT_SUCCESS(vmar_map(&g_kernel_region, &vmar, VMAR_ANY_OFFSET, locals_page_count));
+        ASSERT_SUCCESS(vmar_populate(vmar));
+        vmar_lock(vmar);
         vmar_set_name(vmar, "cpu-locals-%zu", i);
 
         // set the offset and local offset of the core
@@ -190,13 +192,11 @@ void _start(void) {
     // so we can continue
     early_virt_init();
 
-    // finalize arch init, the locals of the BSP are part of the kernel
-    // itself so they can already be used at this point
-    arch_init();
-
-    // allocate all of the cpu locals, they are faulted in on first
-    // access so this must come after the interrupts are setup
+    // allocate all of the cpu locals
     alloc_cpu_locals();
+
+    // finalize arch init
+    arch_init();
 
     // start up the cores
     start_cores();

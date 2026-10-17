@@ -339,9 +339,46 @@ err_t vmar_populate(vmar_t* vmar) {
     CHECK(!vmar->unmapped);
 
     // populate the entire vmar
-    virt_populate(vmar->base, vmar->page_count);
+    virt_populate(vmar->base, vmar->page_count, vmar->locked);
 
     return SUCCESS;
+}
+
+static void vmar_lock_internal(vmar_t* vmar) {
+    // mark as locked
+    vmar->locked = true;
+
+    // if its a region
+    switch (vmar->kind) {
+        // go over the children
+        case VMAR_KIND_REGION: {
+            for (rb_node_linked_t* it = rb_first_linked(&vmar->region.children); it != nullptr;
+                 it = it->next) {
+                vmar_t* child = vmar_of_linked(it);
+                vmar_lock_internal(child);
+            }
+
+        } break;
+
+        // make global
+        case VMAR_KIND_MAPPING: {
+            mutex_guard(&vmar->mapping.page_table_lock);
+            virt_make_global(vmar->base, vmar->page_count);
+        } break;
+
+        // nothing to do
+        case VMAR_KIND_SPECIAL:
+            break;
+
+        default:
+            ASSERT(!"Invalid mapping kind");
+    }
+}
+
+void vmar_lock(vmar_t* vmar) {
+    rwlock_exclusive_guard(&m_vmar_lock);
+    ASSERT(!vmar->unmapped);
+    vmar_lock_internal(vmar);
 }
 
 /**
@@ -410,6 +447,7 @@ vmar_t* vmar_find_mapping(vmar_t* root, void* address) {
 static void vmar_unmap_internal(vmar_t* vmar) {
     // make sure not unmapped already
     ASSERT(!vmar->unmapped);
+    ASSERT(!vmar->locked);
 
     // get the parent and validate it
     vmar_t* parent = vmar->parent;
@@ -425,6 +463,10 @@ static void vmar_unmap_internal(vmar_t* vmar) {
             // get the child and the next one already
             vmar_t* child = vmar_of_linked(it);
             it = it->next;
+
+            // the child can't be unmapped or locked
+            ASSERT(!child->unmapped);
+            ASSERT(!child->locked);
 
             // unmap the entry, this will remove the link
             vmar_unmap_internal(child);

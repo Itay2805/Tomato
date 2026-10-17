@@ -104,7 +104,7 @@ err_t virt_reserve_page_tables(void* base, size_t page_count) {
     return err;
 }
 
-void virt_populate(void* base, size_t page_count) {
+void virt_populate(void* base, size_t page_count, bool global) {
     bool user = virt_is_user_address(base);
 
     for (size_t i = 0; i < page_count; i++) {
@@ -129,6 +129,8 @@ void virt_populate(void* base, size_t page_count) {
         uint64_t entry = direct_to_phys(phys) | IA32_PG_P | IA32_PG_A;
         entry |= IA32_PG_RW | IA32_PG_D;
         entry |= IA32_PG_NX;
+        if (global)
+            entry |= IA32_PG_G;
         if (user)
             entry |= IA32_PG_U;
         atomic_store_release(pte, entry);
@@ -176,7 +178,7 @@ err_t virt_page_fault_handler(void* addr, uint64_t error_code) {
     CHECK_KILL((error_code & IA32_PF_EC_INSTR) == 0);
 
     // populate a single page
-    virt_populate(addr, 1);
+    virt_populate(addr, 1, vmar->locked);
 
     return SUCCESS;
 }
