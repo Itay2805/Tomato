@@ -19,6 +19,11 @@ LATE_RO extern size_t g_cpu_count;
 LATE_RO extern ptrdiff_t* g_cpu_locals_offsets;
 
 /**
+ * The current cpu id
+ */
+CPU_LOCAL(extern, size_t, g_cpu_id);
+
+/**
  * The base of the cpu locals of the current thread
  */
 CPU_LOCAL(extern, ptrdiff_t, g_cpu_locals_offset);

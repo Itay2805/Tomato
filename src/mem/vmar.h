@@ -4,9 +4,11 @@
 #include "lib/object.h"
 #include "lib/rbtree/rbtree.h"
 #include "lib/rbtree/rbtree_types.h"
+#include "lib/snprintf.h"
 #include "sync/mutex.h"
 #include "sync/rwlock.h"
 #include "util/except.h"
+#include <stdarg.h>
 #include <stdint.h>
 
 /**
@@ -104,6 +106,12 @@ typedef struct vmar {
      */
     bool unmapped;
 
+    /**
+     * Is the mapping locked, aka it
+     * can't be unmapped
+     */
+    bool locked;
+
     union {
         struct {
             /**
@@ -126,6 +134,14 @@ typedef struct vmar {
      */
     char name[128];
 } vmar_t;
+
+[[gnu::format(printf, 2, 3)]]
+static inline void vmar_set_name(vmar_t* vmar, const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    kvsnprintf(vmar->name, sizeof(vmar->name), fmt, args);
+    va_end(args);
+}
 
 [[clang::always_inline]]
 static inline void* vmar_end(const vmar_t* vmar) {
@@ -183,6 +199,11 @@ err_t vmar_map(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page
  * Populate the entire vmar right now
  */
 err_t vmar_populate(vmar_t* vmar);
+
+/**
+ * Pin and lock the vmar and all its children
+ */
+void vmar_lock(vmar_t* vmar);
 
 /**
  * Find a mapping from the root at the given address, returning the vmar of the mapping

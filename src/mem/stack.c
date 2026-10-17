@@ -25,7 +25,7 @@ err_t stack_alloc(stack_allocation_t* allocation, size_t size, bool user) {
     }
 
     stack_region->role = VMAR_ROLE_STACK_GUARD;
-    strcpy(stack_region->name, "stack-guard");
+    vmar_set_name(stack_region, "stack-guard");
 
     // now allocate the stack itself, we don't need its ref once we are done with it
     // on error the unmap on the region will clean it up
@@ -35,7 +35,7 @@ err_t stack_alloc(stack_allocation_t* allocation, size_t size, bool user) {
 
     void* stack_bottom = (vmar_end(stack) + 1) - sizeof(uintptr_t) * 2;
     stack->role = VMAR_ROLE_STACK;
-    strcpy(stack->name, "stack");
+    vmar_set_name(stack, "stack");
 
     // for the kernel stacks pre-populate the stack to make sure
     // faults won't do anything funny

@@ -245,49 +245,49 @@ LATE_RO static idt_entry_t m_idt_entries[256];
 /**
  * Set a single idt entry
  */
-INIT_CODE void idt_set_handler(uint8_t vector, void* func) {
+INIT_CODE static void idt_set_handler(uint8_t vector, void* func, tss_ist_t ist) {
     m_idt_entries[vector].handler_low = (uint16_t)((uintptr_t)func & 0xFFFF);
     m_idt_entries[vector].handler_high = (uint64_t)((uintptr_t)func >> 16);
     m_idt_entries[vector].gate_type = IDT_TYPE_INTERRUPT_32;
     m_idt_entries[vector].selector = GDT_KERNEL_CODE;
     m_idt_entries[vector].present = 1;
-    m_idt_entries[vector].ist = 0;
+    m_idt_entries[vector].ist = ist;
 }
 
 INIT_CODE void idt_init() {
     // set all of the exception handlers
-    idt_set_handler(EXCEPT_IA32_DIVIDE_ERROR, exception_handler_0x00);
-    idt_set_handler(EXCEPT_IA32_DEBUG, exception_handler_0x01);
-    idt_set_handler(EXCEPT_IA32_NMI, exception_handler_0x02);
-    idt_set_handler(EXCEPT_IA32_BREAKPOINT, exception_handler_0x03);
-    idt_set_handler(EXCEPT_IA32_OVERFLOW, exception_handler_0x04);
-    idt_set_handler(EXCEPT_IA32_BOUND, exception_handler_0x05);
-    idt_set_handler(EXCEPT_IA32_INVALID_OPCODE, exception_handler_0x06);
-    idt_set_handler(0x07, exception_handler_0x07);
-    idt_set_handler(EXCEPT_IA32_DOUBLE_FAULT, exception_handler_0x08);
-    idt_set_handler(0x09, exception_handler_0x09);
-    idt_set_handler(EXCEPT_IA32_INVALID_TSS, exception_handler_0x0A);
-    idt_set_handler(EXCEPT_IA32_SEG_NOT_PRESENT, exception_handler_0x0B);
-    idt_set_handler(EXCEPT_IA32_STACK_FAULT, exception_handler_0x0C);
-    idt_set_handler(EXCEPT_IA32_GP_FAULT, exception_handler_0x0D);
-    idt_set_handler(EXCEPT_IA32_PAGE_FAULT, page_fault_handler);
-    idt_set_handler(0x0F, exception_handler_0x0F);
-    idt_set_handler(EXCEPT_IA32_FP_ERROR, exception_handler_0x10);
-    idt_set_handler(EXCEPT_IA32_ALIGNMENT_CHECK, exception_handler_0x11);
-    idt_set_handler(EXCEPT_IA32_MACHINE_CHECK, exception_handler_0x12);
-    idt_set_handler(EXCEPT_IA32_SIMD, exception_handler_0x13);
-    idt_set_handler(0x14, exception_handler_0x14);
-    idt_set_handler(0x15, exception_handler_0x15);
-    idt_set_handler(0x16, exception_handler_0x16);
-    idt_set_handler(0x17, exception_handler_0x17);
-    idt_set_handler(0x18, exception_handler_0x18);
-    idt_set_handler(0x19, exception_handler_0x19);
-    idt_set_handler(0x1A, exception_handler_0x1A);
-    idt_set_handler(0x1B, exception_handler_0x1B);
-    idt_set_handler(0x1C, exception_handler_0x1C);
-    idt_set_handler(0x1D, exception_handler_0x1D);
-    idt_set_handler(0x1E, exception_handler_0x1E);
-    idt_set_handler(0x1F, exception_handler_0x1F);
+    idt_set_handler(EXCEPT_IA32_DIVIDE_ERROR, exception_handler_0x00, TSS_IST_NONE);
+    idt_set_handler(EXCEPT_IA32_DEBUG, exception_handler_0x01, TSS_IST_DB);
+    idt_set_handler(EXCEPT_IA32_NMI, exception_handler_0x02, TSS_IST_NMI);
+    idt_set_handler(EXCEPT_IA32_BREAKPOINT, exception_handler_0x03, TSS_IST_NONE);
+    idt_set_handler(EXCEPT_IA32_OVERFLOW, exception_handler_0x04, TSS_IST_NONE);
+    idt_set_handler(EXCEPT_IA32_BOUND, exception_handler_0x05, TSS_IST_NONE);
+    idt_set_handler(EXCEPT_IA32_INVALID_OPCODE, exception_handler_0x06, TSS_IST_NONE);
+    idt_set_handler(0x07, exception_handler_0x07, TSS_IST_NONE);
+    idt_set_handler(EXCEPT_IA32_DOUBLE_FAULT, exception_handler_0x08, TSS_IST_DF);
+    idt_set_handler(0x09, exception_handler_0x09, TSS_IST_NONE);
+    idt_set_handler(EXCEPT_IA32_INVALID_TSS, exception_handler_0x0A, TSS_IST_NONE);
+    idt_set_handler(EXCEPT_IA32_SEG_NOT_PRESENT, exception_handler_0x0B, TSS_IST_NONE);
+    idt_set_handler(EXCEPT_IA32_STACK_FAULT, exception_handler_0x0C, TSS_IST_NONE);
+    idt_set_handler(EXCEPT_IA32_GP_FAULT, exception_handler_0x0D, TSS_IST_NONE);
+    idt_set_handler(EXCEPT_IA32_PAGE_FAULT, page_fault_handler, TSS_IST_NONE);
+    idt_set_handler(0x0F, exception_handler_0x0F, TSS_IST_NONE);
+    idt_set_handler(EXCEPT_IA32_FP_ERROR, exception_handler_0x10, TSS_IST_NONE);
+    idt_set_handler(EXCEPT_IA32_ALIGNMENT_CHECK, exception_handler_0x11, TSS_IST_NONE);
+    idt_set_handler(EXCEPT_IA32_MACHINE_CHECK, exception_handler_0x12, TSS_IST_MCE);
+    idt_set_handler(EXCEPT_IA32_SIMD, exception_handler_0x13, TSS_IST_NONE);
+    idt_set_handler(0x14, exception_handler_0x14, TSS_IST_NONE);
+    idt_set_handler(EXCEPT_IA32_CONTROL_PROTECTION, exception_handler_0x15, TSS_IST_CP);
+    idt_set_handler(0x16, exception_handler_0x16, TSS_IST_NONE);
+    idt_set_handler(0x17, exception_handler_0x17, TSS_IST_NONE);
+    idt_set_handler(0x18, exception_handler_0x18, TSS_IST_NONE);
+    idt_set_handler(0x19, exception_handler_0x19, TSS_IST_NONE);
+    idt_set_handler(0x1A, exception_handler_0x1A, TSS_IST_NONE);
+    idt_set_handler(0x1B, exception_handler_0x1B, TSS_IST_NONE);
+    idt_set_handler(0x1C, exception_handler_0x1C, TSS_IST_NONE);
+    idt_set_handler(0x1D, exception_handler_0x1D, TSS_IST_NONE);
+    idt_set_handler(0x1E, exception_handler_0x1E, TSS_IST_NONE);
+    idt_set_handler(0x1F, exception_handler_0x1F, TSS_IST_NONE);
 
     // load it
     idt_t idt = {

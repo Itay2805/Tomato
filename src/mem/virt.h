@@ -12,7 +12,7 @@ bool virt_is_user_address(void* addr);
 /**
  * Mark the page of the address as a global page
  */
-void virt_make_global(void* addr);
+void virt_make_global(void* addr, size_t page_count);
 
 /**
  * Allocate the non-leaf entries in the range of base to page count, ensuring that we
@@ -29,7 +29,7 @@ err_t virt_reserve_page_tables(void* base, size_t page_count);
  *
  * NOTE: this does not look at the vmars at all
  */
-void virt_populate(void* addr, size_t page_count);
+void virt_populate(void* addr, size_t page_count, bool global);
 
 /**
  * Handle a page fault that happened, returns true if handled successfully, false otherwise

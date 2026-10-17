@@ -21,7 +21,7 @@ static mem_alloc_slab_t* slab_create(mem_alloc_t* alloc, const mem_alloc_meta_t*
 
     // we assume most slabs don't get freed so we can
     // mark it as global to save on tlb invalidations
-    virt_make_global(slab);
+    virt_make_global(slab, 1);
 
     // setup the metadata
     slab->alloc = alloc;

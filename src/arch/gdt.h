@@ -52,14 +52,15 @@ typedef struct [[gnu::packed]] gdt_entries {
  * unmaskable interrupts
  */
 typedef enum tss_ist {
-    TSS_IST_DF = 0,
+    TSS_IST_NONE,
+    TSS_IST_DF,
     TSS_IST_NMI,
     TSS_IST_DB,
     TSS_IST_MCE,
     TSS_IST_CP,
     TSS_IST_MAX,
 } tss_ist_t;
-static_assert(TSS_IST_MAX <= 7);
+static_assert(TSS_IST_MAX - 1 <= 7);
 
 /**
  * The GDT entries of the kernel.

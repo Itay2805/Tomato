@@ -20,7 +20,7 @@ QEMU_FLAGS = [
     "-debugcon",
     "stdio",
     "-monitor",
-    "tcp:127.0.0.1:55555,server,nowait",
+    "telnet:127.0.0.1:55555,server,nowait",
     "-display",
     "none",
     "-no-reboot",

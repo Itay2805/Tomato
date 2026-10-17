@@ -55,7 +55,7 @@ static volatile struct limine_mp_request m_mp_request = {
 #endif
 };
 
-static atomic_size_t m_core_init_finished = 0;
+static atomic_bool m_core_init_finished = false;
 
 static void core_entry(struct limine_mp_info* info) {
     size_t cpu_id = info->extra_argument;
@@ -68,7 +68,7 @@ static void core_entry(struct limine_mp_info* info) {
     // TODO: rest of init
 
     // mark that we finished running the core
-    m_core_init_finished++;
+    m_core_init_finished = true;
     for (;;)
         asm("hlt");
 }
@@ -80,24 +80,27 @@ static void start_cores() {
 
     size_t cpu_id = 1; // id 0 is reserved for the BSP
 
+    // we start the cores one by one because we don't want any mutexes to trigger
+    // the slow path before we get into a threaded environment
     TRACE("CPU Startup:");
     for (size_t i = 0; i < g_cpu_count; i++) {
         struct limine_mp_info* info = m_mp_request.response->cpus[i];
-        info->extra_argument = cpu_id++;
 
         if (info->lapic_id == m_mp_request.response->bsp_lapic_id) {
+            info->extra_argument = 0;
+
             // this is the current core, nothing to do
             TRACE("\tCPU #%ld (BSP)", info->extra_argument);
-            m_core_init_finished++;
         } else {
+            info->extra_argument = cpu_id++;
+
             _Atomic(limine_goto_address)* goto_address = (void*)&info->goto_address;
+            m_core_init_finished = false;
             atomic_store_explicit(goto_address, core_entry, memory_order_release);
+            while (!m_core_init_finished)
+                ;
         }
     }
-
-    // wait until all the cores are done initializing
-    while (m_core_init_finished != g_cpu_count)
-        ;
 }
 
 /////////////////////////////////////////////////////////////////////////
@@ -116,17 +119,23 @@ static void alloc_cpu_locals() {
     // we allocate the rest elsewhere
     g_cpu_locals_offsets[0] = 0;
     g_cpu_locals_offset = 0;
+    g_cpu_id = 0;
 
     size_t locals_page_count = DIV_ROUND_UP(__stop_cpu_locals - __start_cpu_locals, PAGE_SIZE);
     for (size_t i = 1; i < g_cpu_count; i++) {
         vmar_t* vmar = nullptr;
         ASSERT_SUCCESS(vmar_map(&g_kernel_region, &vmar, VMAR_ANY_OFFSET, locals_page_count));
-        ksnprintf(vmar->name, sizeof(vmar->name), "cpu-locals-%zu", i);
+        ASSERT_SUCCESS(vmar_populate(vmar));
+        vmar_lock(vmar);
+        vmar_set_name(vmar, "cpu-locals-%zu", i);
 
         // set the offset and local offset of the core
         ptrdiff_t offset = vmar->base - (void*)__start_cpu_locals;
         g_cpu_locals_offsets[i] = offset;
         *CPU_LOCAL_PTR_OF(g_cpu_locals_offset, i) = offset;
+        *CPU_LOCAL_PTR_OF(g_cpu_id, i) = i;
+
+        OBJECT_PUT(vmar);
     }
 }
 
@@ -185,12 +194,11 @@ void _start() {
         g_cpu_count = 1;
     }
 
-    // finalize arch init, this can be called before alloc locals
-    // before we assume the first locals are part of the kernel
-    arch_init();
-
     // allocate all of the cpu locals
     alloc_cpu_locals();
+
+    // finalize arch init
+    arch_init();
 
     // and now we can start the rest of the system
     start_cores();

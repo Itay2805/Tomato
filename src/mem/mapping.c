@@ -19,12 +19,14 @@ vmar_t g_direct_map = {
     .object = INIT_OBJECT(OBJECT_KIND_VMAR),
     .name = "direct-map",
     .kind = VMAR_KIND_SPECIAL,
+    .locked = true,
 };
 
 vmar_t g_buddy_bitmap_mapping = {
     .object = INIT_OBJECT(OBJECT_KIND_VMAR),
     .name = "buddy-bitmap",
     .kind = VMAR_KIND_SPECIAL,
+    .locked = true,
 };
 
 #define KERNEL_REGION(_name)                                                                       \
@@ -35,6 +37,7 @@ vmar_t g_buddy_bitmap_mapping = {
         .base = __##_name##_start,                                                                 \
         .page_count = (uintptr_t)__##_name##_page_count,                                           \
         .name = "kernel " #_name,                                                                  \
+        .locked = true,                                                                            \
         .kind = VMAR_KIND_SPECIAL,                                                                 \
     };
 
