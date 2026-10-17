@@ -33,6 +33,28 @@ typedef enum vmar_kind : uint8_t {
     VMAR_KIND_MAPPING,
 } vmar_kind_t;
 
+typedef enum vmar_role : uint8_t {
+    /**
+     * A role was not defined for this region/mapping
+     */
+    VMAR_ROLE_UNKNOWN,
+
+    /**
+     * This is a normal memory mapping
+     */
+    VMAR_ROLE_MEMORY,
+
+    /**
+     * This is a mapping that represents a stack
+     */
+    VMAR_ROLE_STACK,
+
+    /**
+     * This is a stack-guard region, it should have the stack under it
+     */
+    VMAR_ROLE_STACK_GUARD,
+} vmar_role_t;
+
 typedef struct vmar {
     /**
      * The object headers
@@ -73,6 +95,11 @@ typedef struct vmar {
      * The kind of the region
      */
     vmar_kind_t kind;
+
+    /**
+     * The role of the vmar, used for extra verification
+     */
+    vmar_role_t role;
 
     /**
      * Was this VMAR unmapped?
@@ -156,6 +183,11 @@ err_t vmar_allocate(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t
  * Create an anonymous mapping, allocating new memory lazily as required
  */
 err_t vmar_map(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page_count);
+
+/**
+ * Populate the entire vmar right now
+ */
+err_t vmar_populate(vmar_t* vmar);
 
 /**
  * Find a mapping from the root at the given address, returning the vmar of the mapping

@@ -14,6 +14,7 @@
 #include "sync/mutex.h"
 #include "sync/rwlock.h"
 #include "tomato/err.h"
+#include "util/defs.h"
 #include "util/except.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -322,6 +323,25 @@ err_t vmar_map(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page
     *new_child = child;
 
     return err;
+}
+
+err_t vmar_populate(vmar_t* vmar) {
+    CHECK_ARG(vmar->kind == VMAR_KIND_MAPPING);
+
+    // the shared lock will keep the vmar alive while the function is running
+    rwlock_shared_guard(&m_vmar_lock);
+
+    // take a lock on the mapping itself, to prevent others
+    // from touching the same region
+    mutex_guard(&vmar->mapping.page_table_lock);
+
+    // the object must not be unmapped at this point
+    CHECK(!vmar->unmapped);
+
+    // populate the entire vmar
+    virt_populate(vmar->base, vmar->page_count);
+
+    return SUCCESS;
 }
 
 /**
