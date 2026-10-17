@@ -123,11 +123,11 @@ void arch_early_init(void) {
 
 void arch_init(void) {
     // setup the gdt for the current core
-    gdt_init();
+    gdt_init(0);
     intr_init();
 }
 
-void arch_init_per_core(void) {
+void arch_init_per_core(size_t cpu_id) {
     // setup all the cpu features first
     arch_early_init();
 
@@ -135,6 +135,6 @@ void arch_init_per_core(void) {
     early_virt_switch_table();
 
     // set the gdt
-    gdt_init();
+    gdt_init(cpu_id);
     intr_init();
 }

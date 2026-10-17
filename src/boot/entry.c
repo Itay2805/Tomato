@@ -1,10 +1,18 @@
+#include "arch/virt.h"
 #include "boot/arch.h"
 #include "boot/random.h"
 #include "boot/virt.h"
 #include "lib/assert.h"
+#include "lib/object.h"
+#include "lib/snprintf.h"
 #include "lib/sp.h"
 #include "lib/trace.h"
 #include "limine.h"
+#include "mem/mapping.h"
+#include "mem/phys.h"
+#include "mem/vmar.h"
+#include "sync/smp.h"
+#include "util/defs.h"
 
 #include <immintrin.h>
 #include <stdatomic.h>
@@ -52,7 +60,7 @@ static atomic_size_t m_core_init_finished = 0;
 static void core_entry(struct limine_mp_info* info) {
     size_t cpu_id = info->extra_argument;
     TRACE("\tCPU #%zu", cpu_id);
-    arch_init_per_core();
+    arch_init_per_core(cpu_id);
 
     // let the BSP know we are done
     m_core_init_finished++;
@@ -89,6 +97,51 @@ static void start_cores(void) {
     // wait until all the other cores are done initializing
     while (m_core_init_finished != mp->cpu_count - 1)
         ;
+}
+
+/////////////////////////////////////////////////////////////////////////
+// Per-cpu locals allocation
+/////////////////////////////////////////////////////////////////////////
+
+extern char __start_cpu_locals[];
+extern char __stop_cpu_locals[];
+
+static void alloc_cpu_locals(void) {
+    // get the core count, if we don't have the mp
+    // response fallback to one core
+    size_t cpu_count = 1;
+    if (m_mp_request.response != nullptr) {
+        cpu_count = m_mp_request.response->cpu_count;
+        ASSERT(cpu_count >= 1);
+    }
+
+    // publish the cpu count
+    g_cpu_count = cpu_count;
+
+    // this should be small enough that using the buddy should be fine
+    g_cpu_locals_offsets = phys_alloc(cpu_count * sizeof(void*));
+    ASSERT(g_cpu_locals_offsets != nullptr);
+
+    // the locals of the first core live in the kernel itself, so zero offset,
+    // we allocate the rest elsewhere
+    g_cpu_locals_offsets[0] = 0;
+    g_cpu_locals_offset = 0;
+    g_cpu_id = 0;
+
+    size_t locals_page_count = DIV_ROUND_UP(__stop_cpu_locals - __start_cpu_locals, PAGE_SIZE);
+    for (size_t i = 1; i < cpu_count; i++) {
+        vmar_t* vmar = nullptr;
+        ASSERT_SUCCESS(vmar_map(&g_kernel_region, &vmar, VMAR_ANY_OFFSET, locals_page_count));
+        vmar_set_name(vmar, "cpu-locals-%zu", i);
+
+        // set the offset and local offset of the core
+        ptrdiff_t offset = vmar->base - (void*)__start_cpu_locals;
+        g_cpu_locals_offsets[i] = offset;
+        *CPU_LOCAL_PTR_OF(g_cpu_locals_offset, i) = offset;
+        *CPU_LOCAL_PTR_OF(g_cpu_id, i) = i;
+
+        OBJECT_PUT(vmar);
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////
@@ -137,8 +190,13 @@ void _start(void) {
     // so we can continue
     early_virt_init();
 
-    // finalize arch init
+    // finalize arch init, the locals of the BSP are part of the kernel
+    // itself so they can already be used at this point
     arch_init();
+
+    // allocate all of the cpu locals, they are faulted in on first
+    // access so this must come after the interrupts are setup
+    alloc_cpu_locals();
 
     // start up the cores
     start_cores();

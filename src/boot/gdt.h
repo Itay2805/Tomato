@@ -1,3 +1,5 @@
 #pragma once
 
-void gdt_init(void);
+#include <stddef.h>
+
+void gdt_init(size_t cpu_id);

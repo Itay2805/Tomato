@@ -1,7 +1,9 @@
 #include "gdt.h"
 #include "arch/gdt.h"
+#include "arch/msr.h"
 #include "lib/assert.h"
 #include "mem/phys.h"
+#include "sync/smp.h"
 #include "sync/spinlock.h"
 #include "util/defs.h"
 #include <stddef.h>
@@ -32,13 +34,13 @@ typedef struct [[gnu::packed]] gdt {
 static irq_spinlock_t m_tss_lock;
 
 /**
- * The TSS, for now it is shared by all the cores
+ * The TSS of the current CPU
  */
-static tss64_t m_tss;
+CPU_LOCAL(static, tss64_t, m_tss);
 
 static void tss_init(void) {
     // get the tss address
-    tss64_t* tss = &m_tss;
+    tss64_t* tss = CPU_LOCAL_PTR(m_tss);
     tss->iopb_offset = sizeof(*tss);
 
     // load the tss
@@ -58,7 +60,7 @@ static void tss_init(void) {
     asm volatile("ltr %w0" : : "r"((uint16_t)GDT_TSS) : "memory");
 }
 
-void gdt_init(void) {
+void gdt_init(size_t cpu_id) {
     // load the gdt and all the segments
     gdt_t gdt = {
         .size = sizeof(gdt_entries_t) - 1,
@@ -82,6 +84,14 @@ void gdt_init(void) {
                  :
                  : "m"(gdt), "i"(GDT_KERNEL_CODE), "i"(GDT_KERNEL_DATA)
                  : "memory", "rax");
+
+    // Set the GS base to the be locals offset, for cpu 0 it is always zero
+    // so use that (for easier init sequence)
+    ptrdiff_t off = 0;
+    if (cpu_id != 0) {
+        off = g_cpu_locals_offsets[cpu_id];
+    }
+    __wrmsr(MSR_IA32_GS_BASE, off);
 
     // load the current tss
     tss_init();

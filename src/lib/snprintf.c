@@ -1,5 +1,6 @@
 #include "snprintf.h"
 
+#include "mem/phys.h"
 #include "string.h"
 #include <stddef.h>
 #include <stdint.h>

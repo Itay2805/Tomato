@@ -4,9 +4,11 @@
 #include "lib/object.h"
 #include "lib/rbtree/rbtree.h"
 #include "lib/rbtree/rbtree_types.h"
+#include "lib/snprintf.h"
 #include "sync/mutex.h"
 #include "sync/rwlock.h"
 #include "util/except.h"
+#include <stdarg.h>
 #include <stdint.h>
 
 /**
@@ -94,6 +96,14 @@ typedef struct vmar {
         } mapping;
     };
 } vmar_t;
+
+[[gnu::format(printf, 2, 3)]]
+static inline void vmar_set_name(vmar_t* vmar, const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    kvsnprintf(vmar->object.name, sizeof(vmar->object.name), fmt, args);
+    va_end(args);
+}
 
 [[clang::always_inline]]
 static inline void* vmar_end(const vmar_t* vmar) {
