@@ -4,6 +4,7 @@
 #include "arch/msr.h"
 #include "boot/gdt.h"
 #include "boot/virt.h"
+#include "irq/apic.h"
 #include "irq/intr.h"
 #include "lib/assert.h"
 #include "mem/phys.h"
@@ -125,6 +126,7 @@ void arch_init(void) {
     // setup the gdt for the current core
     gdt_init(0);
     intr_init();
+    lapic_init();
 }
 
 void arch_init_per_core(size_t cpu_id) {
@@ -137,4 +139,5 @@ void arch_init_per_core(size_t cpu_id) {
     // set the gdt
     gdt_init(cpu_id);
     intr_init();
+    lapic_init_per_core();
 }

@@ -30,6 +30,9 @@
 #define IA32_CP_EC_SETSSBSY     5
 #define IA32_CP_EC_ENCL         BIT15
 
+// reserved vectors
+#define INTR_VECTOR_SPURIOUS 0xFF
+
 typedef struct interrupt_frame {
     uint64_t rip;
     uint64_t cs;
