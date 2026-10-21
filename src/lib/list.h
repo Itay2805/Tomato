@@ -17,6 +17,11 @@ typedef list_entry_t list_t;
 
 #define LIST_INIT(name) ((list_t){ &(name), &(name) })
 
+static inline void init_list(list_t* list) {
+    list->next = list;
+    list->prev = list;
+}
+
 [[gnu::cold, noreturn]]
 void __list_add_valid_or_report(list_entry_t* new, list_entry_t* prev, list_entry_t* next);
 

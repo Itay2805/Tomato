@@ -26,6 +26,10 @@
     atomic_compare_exchange_strong_explicit(object, expected, desired, memory_order_relaxed,       \
                                             memory_order_relaxed)
 
+#define atomic_compare_exchange_release(object, expected, desired)                                 \
+    atomic_compare_exchange_strong_explicit(object, expected, desired, memory_order_release,       \
+                                            memory_order_relaxed)
+
 #define atomic_compare_exchange_rel_acq(object, expected, desired)                                 \
     atomic_compare_exchange_strong_explicit(object, expected, desired, memory_order_release,       \
                                             memory_order_acquire)

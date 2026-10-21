@@ -4,6 +4,7 @@
 #include "lib/trace.h"
 #include "mem/vmar.h"
 
+#include "thread/thread.h"
 #include "util/atomic.h"
 
 void object_free(object_t* object) {
@@ -12,6 +13,10 @@ void object_free(object_t* object) {
     switch (object->kind) {
         case OBJECT_KIND_VMAR: {
             vmar_free(container_of(object, vmar_t, object));
+        } break;
+
+        case OBJECT_KIND_THREAD: {
+            thread_free(container_of(object, thread_t, object));
         } break;
 
         default:

@@ -4,6 +4,7 @@
 #include "util/atomic.h"
 typedef enum object_kind {
     OBJECT_KIND_VMAR,
+    OBJECT_KIND_THREAD,
 } object_kind_t;
 
 typedef struct object {

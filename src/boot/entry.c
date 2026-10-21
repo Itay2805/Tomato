@@ -12,6 +12,9 @@
 #include "mem/phys.h"
 #include "mem/vmar.h"
 #include "sync/smp.h"
+#include "thread/runq.h"
+#include "thread/sched.h"
+#include "thread/thread.h"
 #include "util/defs.h"
 
 #include <immintrin.h>
@@ -55,18 +58,11 @@ static volatile struct limine_mp_request m_mp_request = {
 #endif
 };
 
-static atomic_bool m_core_init_finished = false;
-
 static void core_entry(struct limine_mp_info* info) {
     size_t cpu_id = info->extra_argument;
     TRACE("\tCPU #%zu", cpu_id);
     arch_init_per_core(cpu_id);
-
-    // let the BSP know we are done
-    m_core_init_finished = true;
-
-    for (;;)
-        asm("hlt");
+    sched_start_per_core();
 }
 
 static void start_cores(void) {
@@ -75,6 +71,7 @@ static void start_cores(void) {
         return;
     }
 
+    // set the total cpu count
     size_t cpu_id = 1; // id 0 is reserved for the BSP
 
     // we start the cores one by one because we don't want any mutexes to trigger
@@ -92,12 +89,12 @@ static void start_cores(void) {
             info->extra_argument = cpu_id++;
 
             _Atomic(limine_goto_address)* goto_address = (void*)&info->goto_address;
-            m_core_init_finished = false;
             atomic_store_explicit(goto_address, core_entry, memory_order_release);
-            while (!m_core_init_finished)
-                ;
         }
     }
+
+    // wait for all cores to start scheduling
+    sched_wait();
 }
 
 /////////////////////////////////////////////////////////////////////////
@@ -151,6 +148,17 @@ static void alloc_cpu_locals(void) {
 // The kernel entry point
 /////////////////////////////////////////////////////////////////////////
 
+static void kernel_init_thread(void* arg) {
+    (void)arg;
+
+    // start up the cores
+    start_cores();
+
+    TRACE("DONE!");
+
+    // TODO: continue the rest of the init
+}
+
 static void bootloader_sanity(void) {
     if (LIMINE_LOADED_BASE_REVISION_VALID(limine_base_revision)) {
         TRACE("Bootloader has loaded us using base revision %lu",
@@ -199,12 +207,15 @@ void _start(void) {
     // finalize arch init
     arch_init();
 
-    // start up the cores
-    start_cores();
+    // need to start by initializing the run queue so we can
+    // actually queue a thread to run
+    sched_init();
 
-    TRACE("DONE!");
+    // setup the init thread
+    thread_t* thread = nullptr;
+    ASSERT_SUCCESS(thread_create(&thread, kernel_init_thread, nullptr, "init"));
+    thread_start(thread);
 
-    // TODO: continue the rest of the init
-    for (;;)
-        asm("hlt");
+    // and start the scheduler on the BSP
+    sched_start_per_core();
 }

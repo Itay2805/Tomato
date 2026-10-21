@@ -138,8 +138,8 @@ else:
     )
 
 # Split the sources into kernel ones and boot code ones
-sources = glob("**/*.c", Path("src"))
-boot_sources = glob("**/*.c", Path("src/boot"))
+sources = glob("**/*.c", Path("src")) + glob("**/*.S", Path("src"))
+boot_sources = glob("**/*.c", Path("src/boot")) + glob("**/*.S", Path("src/boot"))
 for boot_source in boot_sources:
     sources.remove(boot_source)
 
