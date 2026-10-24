@@ -17,7 +17,6 @@
 #include "thread/thread.h"
 #include "util/defs.h"
 
-#include <immintrin.h>
 #include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -123,8 +122,8 @@ static void alloc_cpu_locals(void) {
     // the locals of the first core live in the kernel itself, so zero offset,
     // we allocate the rest elsewhere
     g_cpu_locals_offsets[0] = 0;
-    g_cpu_locals_offset = 0;
-    g_cpu_id = 0;
+    CPU_LOCAL(cpu_locals_offset) = 0;
+    CPU_LOCAL(cpu_id) = 0;
 
     size_t locals_page_count = DIV_ROUND_UP(__stop_cpu_locals - __start_cpu_locals, PAGE_SIZE);
     for (size_t i = 1; i < cpu_count; i++) {
@@ -137,8 +136,8 @@ static void alloc_cpu_locals(void) {
         // set the offset and local offset of the core
         ptrdiff_t offset = vmar->base - (void*)__start_cpu_locals;
         g_cpu_locals_offsets[i] = offset;
-        *CPU_LOCAL_PTR_OF(g_cpu_locals_offset, i) = offset;
-        *CPU_LOCAL_PTR_OF(g_cpu_id, i) = i;
+        *CPU_LOCAL_PTR_OF(cpu_locals_offset, i) = offset;
+        *CPU_LOCAL_PTR_OF(cpu_id, i) = i;
 
         OBJECT_PUT(vmar);
     }

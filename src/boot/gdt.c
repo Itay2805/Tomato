@@ -40,7 +40,7 @@ static irq_spinlock_t m_tss_lock;
 /**
  * The TSS of the current CPU
  */
-CPU_LOCAL(static, tss64_t, m_tss);
+DEFINE_CPU_LOCAL(static, tss64_t, tss);
 
 static const char* const m_ist_name[] = {
     "ist-df-%zu", "ist-nmi-%zu", "ist-db-%zu", "ist-mce-%zu", "ist-cp-%zu",
@@ -49,14 +49,14 @@ static_assert(sizeof(m_ist_name) / sizeof(char*) == TSS_IST_MAX - 1);
 
 static void tss_init(void) {
     // get the tss address
-    tss64_t* tss = CPU_LOCAL_PTR(m_tss);
+    tss64_t* tss = CPU_LOCAL_PTR(tss);
     tss->iopb_offset = sizeof(*tss);
 
     // allocate the special interrupt stacks
     for (int i = 0; i < TSS_IST_MAX - 1; i++) {
         stack_allocation_t alloc;
         ASSERT_SUCCESS(stack_alloc(&alloc, SIZE_4KB, false));
-        vmar_set_name(alloc.stack_region, m_ist_name[i], g_cpu_id);
+        vmar_set_name(alloc.stack_region, m_ist_name[i], CPU_LOCAL(cpu_id));
 
         // we will never free the stack, lock it
         vmar_lock(alloc.stack_region);

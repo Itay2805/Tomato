@@ -1,4 +1,4 @@
-#include "gdt.h"
+#include "arch/gdt.h"
 #include "util/defs.h"
 
 LATE_RO gdt_entries_t g_gdt_entries = {

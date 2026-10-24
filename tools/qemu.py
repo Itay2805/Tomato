@@ -58,6 +58,8 @@ def main() -> int:
         "build",
         "-c",
         f"DEBUG={'y' if args.debug else 'n'}",
+        "-c",
+        "ARCH=x86_64",
     ]
     bob.append(str(image))
 

@@ -7,7 +7,7 @@
 /**
  * The APIC id of the local core
  */
-CPU_LOCAL(extern, uint32_t, g_apic_id);
+DEFINE_CPU_LOCAL(extern, uint32_t, apic_id);
 
 /**
  * Initialize the APIC globally

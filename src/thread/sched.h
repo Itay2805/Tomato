@@ -8,7 +8,7 @@
 /**
  * The currently running thread
  */
-CPU_LOCAL(extern, thread_t*, g_current_thread);
+DEFINE_CPU_LOCAL(extern, thread_t*, current_thread);
 
 /**
  * Initialize the scheduler for all the cores

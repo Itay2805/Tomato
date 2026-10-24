@@ -3,11 +3,12 @@
 from pathlib import Path
 
 import bobstd.c as c
-from bob.core.context import Context
 from bob.prelude import *
 
 bob_required_version("0.1.0")
 bob_required_package_version("bobstd", "0.2.0")
+
+ARCH = config("ARCH", required=True)
 
 ################################################################################
 # The kernel
@@ -21,14 +22,38 @@ c.toolchain(ccbin="clang", arbin="llvm-ar", asbin="clang", ldbin="clang")
 CLANG_INCLUDE_DIR = shell("clang --print-file-name=include", strip=True)
 
 # Set the cflags we use
-# TODO: proper multi-arch support
+match ARCH:
+    case "x86_64":
+        c.cflags.add(
+            [
+                "-target",
+                "x86_64-none-elf",
+                "-march=x86-64-v3",
+                # Kernel ABI
+                "-mgeneral-regs-only",
+                "-mno-red-zone",
+                "-mcmodel=kernel",
+                "-mstack-alignment=8",
+            ]
+        )
+
+    case "aarch64":
+        c.cflags.add(
+            [
+                "-target",
+                "aarch64-none-elf",
+                "-march=armv8.2-a",
+                # Kernel ABI
+                "-mgeneral-regs-only",
+            ]
+        )
+
+    case _:
+        raise ValueError(f"Unknown arch {ARCH}")
+
 
 c.cflags.add(
     [
-        # Compile for x86-64
-        "-target",
-        "x86_64-pc-none-elf",
-        "-march=x86-64-v3",
         # All the errors
         "-Wall",
         "-Wextra",
@@ -42,27 +67,20 @@ c.cflags.add(
         CLANG_INCLUDE_DIR,
         "-Iinclude",
         "-Isrc",
+        f"-Isrc/arch/{ARCH}",
         # Easier debugging, regardless of level
         "-g",
         # All code is internal
         "-fvisibility=hidden",
-        # static binary
-        "-static",  # TODO: static pie?
+        # static reloctable binary
+        "-static",
         "-fno-common",
         # memory model
-        "-fno-pic",  # TODO: pic so we can kaslr?
+        "-fpic",
         "-fno-plt",
-        "-mcmodel=kernel",
         # Kernel compatible code gen
-        "-mgeneral-regs-only",
-        "-mno-red-zone",
         "-ffreestanding",
         "-fno-builtin",
-        # Align the stack to 8 bytes because no need for more in the kernel
-        "-mstack-alignment=8",
-        # Enable full CFI for kernel IBT
-        "-fcf-protection=branch",
-        "-fno-jump-tables",
         # Strong stack protector
         "-fstack-protector-strong",
         # Only allow C99 flexible arrays
@@ -139,9 +157,29 @@ else:
 
 # Split the sources into kernel ones and boot code ones
 sources = glob("**/*.c", Path("src")) + glob("**/*.S", Path("src"))
-boot_sources = glob("**/*.c", Path("src/boot")) + glob("**/*.S", Path("src/boot"))
-for boot_source in boot_sources:
-    sources.remove(boot_source)
+
+# remove the arch sources not for the current arch
+boot_sources: list[Path] = []
+to_remove: list[Path] = []
+for source in sources:
+    parts = source.parts
+
+    # Check if this source is not for the current architecture
+    if "arch" in parts:
+        idx = parts.index("arch")
+        if idx + 1 < len(parts) and parts[idx + 1] != ARCH:
+            to_remove.append(source)
+            continue
+
+    # Check if the source is only for boot time
+    if "boot" in parts:
+        boot_sources.append(source)
+        to_remove.append(source)
+
+# remove all the required sources
+for source in to_remove:
+    sources.remove(source)
+
 
 #
 # The boot code, it builds without kasan to make

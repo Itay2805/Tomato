@@ -126,7 +126,7 @@ LATE_RO static bool m_x2apic_mode = false;
 //  */
 // LATE_RO static uint8_t* m_xapic_base = NULL;
 
-CPU_LOCAL(, uint32_t, g_apic_id);
+DEFINE_CPU_LOCAL(, uint32_t, apic_id);
 
 // static uint32_t lapic_read(size_t offset) {
 //     if (m_x2apic_mode) {

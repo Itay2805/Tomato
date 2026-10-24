@@ -80,7 +80,8 @@ void thread_start(thread_t* thread) {
 }
 
 noreturn void thread_exit(void) {
-    ASSERT(atomic_exchange(&g_current_thread->state, THREAD_STATE_DEAD) == THREAD_STATE_RUNNING);
+    ASSERT(atomic_exchange(&CPU_LOCAL(current_thread)->state, THREAD_STATE_DEAD) ==
+           THREAD_STATE_RUNNING);
 
     irq_disable();
     scheduler_schedule();
@@ -113,6 +114,6 @@ INIT_CODE noreturn void thread_bootstrap(thread_t* thread) {
     atomic_store_relaxed(&thread->state, THREAD_STATE_RUNNING);
 
     // set it as the current thread and jump into it
-    g_current_thread = thread;
+    CPU_LOCAL(current_thread) = thread;
     do_thread_bootstrap(thread);
 }

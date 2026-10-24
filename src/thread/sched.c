@@ -19,22 +19,22 @@ typedef enum last_thread_action {
 /**
  * The last thread just switched out.
  */
-CPU_LOCAL(static, thread_t*, g_last_thread);
+DEFINE_CPU_LOCAL(static, thread_t*, last_thread);
 
 /**
  * The action to perform on `last_thread` in the context of the newly-switched thread.
  */
-CPU_LOCAL(static, last_thread_action_t, g_last_thread_action);
+DEFINE_CPU_LOCAL(static, last_thread_action_t, last_thread_action);
 
 /**
  * The idle thread of the current core
  */
-CPU_LOCAL(static, thread_t*, g_idle_thread);
+DEFINE_CPU_LOCAL(static, thread_t*, idle_thread);
 
 /**
  * The currently running thread
  */
-CPU_LOCAL(, thread_t*, g_current_thread);
+DEFINE_CPU_LOCAL(, thread_t*, current_thread);
 
 INIT_DATA atomic_size_t m_sched_start_count = 0;
 
@@ -74,9 +74,9 @@ INIT_CODE void sched_init(void) {
     for (size_t i = 0; i < g_cpu_count; i++) {
         thread_t* thread;
         ASSERT_SUCCESS(
-            thread_create(&thread, scheduler_idle_thread, nullptr, "{idle-%d}", g_cpu_id));
+            thread_create(&thread, scheduler_idle_thread, nullptr, "{idle-%d}", CPU_LOCAL(cpu_id)));
         atomic_store_relaxed(&thread->state, THREAD_STATE_READY);
-        *CPU_LOCAL_PTR_OF(g_idle_thread, i) = thread;
+        *CPU_LOCAL_PTR_OF(idle_thread, i) = thread;
     }
 }
 
@@ -92,13 +92,13 @@ static thread_t* sched_select_thread(void) {
     if (entry != nullptr) {
         return container_of(entry, thread_t, rqe);
     } else {
-        return g_idle_thread;
+        return CPU_LOCAL(idle_thread);
     }
 }
 
 INIT_CODE void sched_start_per_core(void) {
     irq_disable();
-    thread_bootstrap(g_idle_thread);
+    thread_bootstrap(CPU_LOCAL(idle_thread));
 }
 
 static void scheduler_finish_park(thread_t* thread) {
@@ -124,37 +124,37 @@ static void scheduler_finish_park(thread_t* thread) {
 void scheduler_after_schedule(void) {
     // We are now executing in the context of the new thread, but may need to clean up
     // after the old thread.
-    switch (g_last_thread_action) {
+    switch (CPU_LOCAL(last_thread_action)) {
         case LAST_THREAD_ACTION_NONE:
             break;
         case LAST_THREAD_ACTION_PARK:
-            scheduler_finish_park(g_last_thread);
+            scheduler_finish_park(CPU_LOCAL(last_thread));
             break;
         case LAST_THREAD_ACTION_PUT:
-            OBJECT_PUT(g_last_thread);
+            OBJECT_PUT(CPU_LOCAL(last_thread));
             break;
     }
 
-    g_last_thread = nullptr;
-    g_last_thread_action = LAST_THREAD_ACTION_NONE;
+    CPU_LOCAL(last_thread) = nullptr;
+    CPU_LOCAL(last_thread_action) = LAST_THREAD_ACTION_NONE;
 }
 
 void scheduler_schedule(void) {
     // Interrupts must be disabled in the scheduler
     ASSERT(!irq_enabled());
 
-    thread_t* current = g_current_thread;
+    thread_t* current = CPU_LOCAL(current_thread);
 
     thread_state_t state = atomic_load_relaxed(&current->state);
     switch (state) {
         case THREAD_STATE_DEAD: {
             // The thread has died, drop the ref the scheduler owns.
-            g_last_thread_action = LAST_THREAD_ACTION_PUT;
+            CPU_LOCAL(last_thread_action) = LAST_THREAD_ACTION_PUT;
         } break;
 
         case THREAD_STATE_PARKING: {
             // Finish parking the thread once we've switched away from it.
-            g_last_thread_action = LAST_THREAD_ACTION_PARK;
+            CPU_LOCAL(last_thread_action) = LAST_THREAD_ACTION_PARK;
         } break;
 
         case THREAD_STATE_RUNNING: {
@@ -162,7 +162,7 @@ void scheduler_schedule(void) {
             atomic_store_relaxed(&current->state, THREAD_STATE_READY);
 
             // only put non-idle threads into the run queue
-            if (current != g_idle_thread) {
+            if (current != CPU_LOCAL(idle_thread)) {
                 run_queue_put(&current->rqe);
             }
         } break;
@@ -172,7 +172,7 @@ void scheduler_schedule(void) {
     }
 
     // remember the last thread
-    g_last_thread = current;
+    CPU_LOCAL(last_thread) = current;
 
     // select a new thread
     thread_t* new_thread = sched_select_thread();
@@ -184,7 +184,7 @@ void scheduler_schedule(void) {
 
     if (new_thread != current) {
         // actually switch to the new thread
-        g_current_thread = new_thread;
+        CPU_LOCAL(current_thread) = new_thread;
         thread_switch(new_thread, current);
     }
 
