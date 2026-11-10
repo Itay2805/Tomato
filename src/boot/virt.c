@@ -1,34 +1,20 @@
 #include "virt.h"
 
-#include "arch/intrin.h"
 #include "arch/virt.h"
+#include "debug/debugcon.h"
+#include "debug/trace.h"
 #include "lib/assert.h"
 #include "lib/string.h"
-#include "lib/trace.h"
 #include "limine.h"
 #include "mem/accounting.h"
 #include "mem/mapping.h"
 #include "mem/phys.h"
+#include "mem/pte.h"
 #include "mem/virt.h"
 #include "mem/vmar.h"
 #include "util/defs.h"
 
 #include <stdint.h>
-
-[[gnu::section(".limine_requests")]]
-static volatile struct limine_paging_mode_request g_paging_mode_request = {
-    .id = LIMINE_PAGING_MODE_REQUEST_ID,
-    .revision = 0,
-    .response = nullptr,
-#ifdef __x86_64__
-    // TODO: support for 5lvl paging
-    .mode = LIMINE_PAGING_MODE_X86_64_4LVL,
-    .min_mode = LIMINE_PAGING_MODE_X86_64_4LVL,
-    .max_mode = LIMINE_PAGING_MODE_X86_64_4LVL,
-#else
-    #error Unknown arch
-#endif
-};
 
 [[gnu::section(".limine_requests")]]
 static volatile struct limine_hhdm_request g_hhdm_request = { .id = LIMINE_HHDM_REQUEST_ID,
@@ -96,33 +82,6 @@ void* early_phys_alloc_page(void) {
 // Setup early regions
 //
 
-static int init_kernel_region(void) {
-    ASSERT(g_paging_mode_request.response != nullptr);
-
-    // figure how many address bits we have (for both kernel and user)
-    switch (g_paging_mode_request.response->mode) {
-#ifdef __x86_64__
-        case LIMINE_PAGING_MODE_X86_64_4LVL:
-            g_kernel_region.base = (void*)0xFFFF800000000000;
-            g_kernel_region.page_count = SIZE_128TB / PAGE_SIZE;
-
-            // we save the first 4gb to ensure nothing
-            // can be mapped to zero
-            g_user_region.base = (void*)SIZE_4GB;
-
-            // we don't allow to map the last canonical page to deal with
-            // the issues that come from Intel's SYSRET implementation faulting
-            // on a non-canonical rip, this ensures we just can't have that issue
-            g_user_region.page_count = ((SIZE_128TB - SIZE_4GB - PAGE_SIZE) / PAGE_SIZE);
-            return 4;
-#else
-    #error Unknown arch
-#endif
-        default:
-            ASSERT(0, "Unknown paging mode %lu", g_paging_mode_request.response->mode);
-    }
-}
-
 static void init_direct_map(void) {
     // set the direct map base and length
     ASSERT(g_hhdm_request.response != NULL);
@@ -149,11 +108,11 @@ static void init_direct_map(void) {
 //
 
 static uint64_t* early_virt_get_next_level(uint64_t* entry) {
-    if ((*entry & IA32_PG_P) == 0) {
+    if (!pte_is_present(*entry)) {
         void* phys = early_phys_alloc_page();
-        *entry = direct_to_phys(phys) | IA32_PG_P | IA32_PG_RW;
+        *entry = pte_table(direct_to_phys(phys), false);
     }
-    return phys_to_direct(*entry & PAGING_4K_ADDRESS_MASK);
+    return phys_to_direct(pte_address(*entry));
 }
 
 static uint64_t* early_virt_get_pte(void* virt) {
@@ -175,12 +134,22 @@ static uint64_t* early_virt_get_pte(void* virt) {
     __builtin_unreachable();
 }
 
-static void early_virt_map(void* virt, uint64_t phys, size_t num_pages, uint64_t flags) {
+void early_virt_map(void* virt, uint64_t phys, size_t num_pages, pte_flags_t flags) {
     for (; num_pages != 0; num_pages--, virt += PAGE_SIZE, phys += PAGE_SIZE) {
         uint64_t* pte = early_virt_get_pte(virt);
         ASSERT(*pte == 0);
-        *pte = phys | IA32_PG_P | IA32_PG_A | flags;
+        *pte = pte_page(phys, flags);
     }
+}
+
+//
+// Early access to the bootloader's direct map
+//
+
+void* early_phys_to_direct(uint64_t phys) {
+    // we use the same offset as the bootloader, but this is used before we set up our direct map
+    ASSERT(g_hhdm_request.response != nullptr);
+    return (void*)(g_hhdm_request.response->offset + phys);
 }
 
 static void early_map_vmar(vmar_t* vmar, vm_perm_t perms) {
@@ -189,12 +158,12 @@ static void early_map_vmar(vmar_t* vmar, vm_perm_t perms) {
     void* virt_base = (void*)g_executable_address.response->virtual_base;
     uint64_t phys_addr = (vmar->base - virt_base) + phys_base;
 
-    uint64_t flags = IA32_PG_G;
+    pte_flags_t flags = PTE_GLOBAL;
     if (perms == VM_PERM_RW) {
-        flags |= IA32_PG_D | IA32_PG_RW;
+        flags |= PTE_WRITE;
     }
-    if (perms != VM_PERM_RX) {
-        flags |= IA32_PG_NX;
+    if (perms == VM_PERM_RX) {
+        flags |= PTE_EXEC;
     }
     early_virt_map(vmar->base, phys_addr, vmar->page_count, flags);
 }
@@ -218,7 +187,7 @@ static void early_map_direct_map(void) {
             continue;
         }
         early_virt_map(phys_to_direct(entry->base), entry->base, entry->length / PAGE_SIZE,
-                       IA32_PG_RW | IA32_PG_D | IA32_PG_NX);
+                       PTE_WRITE);
     }
 }
 
@@ -251,19 +220,17 @@ static void early_create_buddy_bitmap(void) {
         void* bitmap_end_ptr = g_buddy_bitmap_mapping.base + bitmap_end;
         for (; bitmap_ptr < bitmap_end_ptr; bitmap_ptr += PAGE_SIZE) {
             uint64_t* pte = early_virt_get_pte(bitmap_ptr);
-            if (*pte & IA32_PG_P) {
+            if (pte_is_present(*pte)) {
                 continue;
             }
 
-            // allocate and map the page, we mark it as RW, global (it never gets unmapped)
-            // and as both dirty and accessed because we don't care for that information
-            uint64_t entry = direct_to_phys(early_phys_alloc_page());
-            entry |= IA32_PG_P | IA32_PG_RW | IA32_PG_NX;
-            entry |= IA32_PG_G;
-            entry |= IA32_PG_D | IA32_PG_A;
-            *pte = entry;
+            // allocate and map the page, we mark it as RW and global (it never gets unmapped)
+            *pte = pte_page(direct_to_phys(early_phys_alloc_page()), PTE_WRITE | PTE_GLOBAL);
         }
     }
+
+    // we are about to fill the bitmap
+    pte_barrier();
 }
 
 static void early_phys_add_memory(void) {
@@ -293,19 +260,14 @@ static void early_phys_add_memory(void) {
     mem_acct_add_committed(m_early_alloc_page_count);
 }
 
-void early_virt_switch_table(void) {
-    __writecr3(direct_to_phys(g_page_table));
-}
-
 void early_virt_init(void) {
-    // initialize the basic regions
-    g_page_table_levels = init_kernel_region();
+    // initialize the basic regions and the root tables
     init_direct_map();
+    early_virt_init_layout();
 
     // map the kernel and direct map, don't link
     // them to the vmar tree yet, because we want
     // to avoid code that will use kasan
-    g_page_table = early_phys_alloc_page();
     early_map_kernel();
     early_map_direct_map();
     // TODO: create kasan range
@@ -324,6 +286,9 @@ void early_virt_init(void) {
     vmar_link(&g_kernel_region, &g_kernel_rodata_mapping);
     vmar_link(&g_kernel_region, &g_kernel_late_rodata_mapping);
     vmar_link(&g_kernel_region, &g_kernel_data_mapping);
+
+    // the debug console can be used once it is mapped
+    debugcon_early_map();
 
     // now initialize the buddy allocator bitmap
     // and add all physical memory to it

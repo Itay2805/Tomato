@@ -1,11 +1,12 @@
 #include "thread.h"
 
+#include "arch/thread.h"
 #include "arch/virt.h"
+#include "debug/trace.h"
 #include "irq/irq.h"
 #include "lib/assert.h"
 #include "lib/object.h"
 #include "lib/snprintf.h"
-#include "lib/trace.h"
 #include "mem/alloc.h"
 #include "mem/stack.h"
 #include "mem/vmar.h"
@@ -13,24 +14,6 @@
 #include "thread/runq.h"
 #include <stdarg.h>
 #include <stdatomic.h>
-
-/**
- * The saved state when switching between threads
- */
-typedef struct [[gnu::packed]] thread_entry_frame {
-    // NOTE: must be in-sync with the assembly
-    uint64_t r15;
-    uint64_t r14;
-    uint64_t r13;
-    uint64_t r12;
-    uint64_t rbx;
-    uint64_t rbp;
-    uint64_t rip;
-
-    // NOTE: must be in sync with thread_entry_thunk
-    uint64_t rdi;
-    uint64_t rsi;
-} thread_entry_frame_t;
 
 DEFINE_ALLOC(thread_t);
 
@@ -58,15 +41,13 @@ err_t thread_create(thread_t** out, thread_entry_t entry, void* arg, const char*
     thread->kernel_stack = kernel_stack.stack_region;
 
     // setup the initial kernel stack
-    void* rsp = kernel_stack.stack_bottom;
-    rsp -= sizeof(thread_entry_frame_t);
-    thread_entry_frame_t* entry_frame = rsp;
-    thread->kernel_rsp = rsp;
+    void* sp = kernel_stack.stack_bottom;
+    sp -= sizeof(thread_entry_frame_t);
+    thread_entry_frame_t* entry_frame = sp;
+    thread->kernel_sp = sp;
 
     // setup the entry frame
-    entry_frame->rip = (uintptr_t)thread_entry_thunk;
-    entry_frame->rdi = (uintptr_t)entry;
-    entry_frame->rsi = (uintptr_t)arg;
+    thread_entry_frame_init(entry_frame, (uintptr_t)entry, (uintptr_t)arg);
 
     // we can return the thread
     *out = thread;

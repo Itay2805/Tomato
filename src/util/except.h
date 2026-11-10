@@ -1,8 +1,8 @@
 #pragma once
 
+#include "debug/trace.h"
 #include "defs.h"
 #include "lib/cpp_magic.h"
-#include "lib/trace.h"
 #include "tomato/err.h"
 
 #include <stddefer.h>

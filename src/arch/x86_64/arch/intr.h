@@ -1,5 +1,7 @@
 #pragma once
 
+#include "arch/gdt.h"
+#include "util/defs.h"
 #include <stdint.h>
 
 #define EXCEPT_IA32_DIVIDE_ERROR       0
@@ -31,7 +33,8 @@
 #define IA32_CP_EC_ENCL         BIT15
 
 // reserved vectors
-#define INTR_VECTOR_SPURIOUS 0xFF
+#define INTR_VECTOR_SPURIOUS      0xFF
+#define INTR_VECTOR_TLB_SHOOTDOWN 0xFE
 
 typedef struct interrupt_frame {
     uint64_t rip;
@@ -40,3 +43,16 @@ typedef struct interrupt_frame {
     uint64_t rsp;
     uint64_t ss;
 } interrupt_frame_t;
+
+/**
+ * Swap the GS base if not coming from kernel, otherwise leave as is
+ */
+static inline void swapgs(interrupt_frame_t* frame) {
+    if (frame->cs != GDT_KERNEL_CODE) {
+        asm("swapgs");
+    }
+}
+
+INIT_CODE void intr_set_handler(uint8_t vector, void* func);
+
+INIT_CODE void intr_init(void);

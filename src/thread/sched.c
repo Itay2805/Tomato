@@ -1,9 +1,9 @@
 #include "sched.h"
+#include "debug/trace.h"
 #include "irq/irq.h"
 #include "lib/assert.h"
 #include "lib/container_of.h"
 #include "lib/object.h"
-#include "lib/trace.h"
 #include "sync/smp.h"
 #include "thread/runq.h"
 #include "thread/thread.h"
@@ -45,11 +45,8 @@ noreturn static void scheduler_idle_loop(void) {
         // more work to run
         scheduler_schedule();
 
-        // hlt, we need the sti to come right before it to make sure
-        // we atomically hlt and enable interrupts
-        asm volatile("sti\n"
-                     "hlt\n"
-                     "cli\n");
+        // wait for an interrupt to give us more work
+        irq_wait();
     }
 
     __builtin_unreachable();
@@ -195,6 +192,9 @@ void scheduler_schedule(void) {
 void thread_entry_point(thread_entry_t entry, void* arg) {
     // let the scheduler know all is good
     scheduler_after_schedule();
+
+    // the scheduler runs with interrupts disabled, but threads run with them enabled
+    irq_enable();
 
     // we can now call the thread's
     // real entry point

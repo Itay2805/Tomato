@@ -1,12 +1,11 @@
-#include "intr.h"
-#include "arch/gdt.h"
 #include "arch/intr.h"
+#include "arch/gdt.h"
 #include "arch/intrin.h"
 #include "arch/msr.h"
 #include "arch/virt.h"
+#include "debug/trace.h"
 #include "irq/irq.h"
 #include "lib/assert.h"
-#include "lib/trace.h"
 #include "mem/virt.h"
 #include "util/defs.h"
 #include "util/except.h"
@@ -35,15 +34,6 @@ typedef struct [[gnu::packed]] idt {
     uint16_t limit;
     idt_entry_t* base;
 } idt_t;
-
-/**
- * Swap the GS base if not coming from kernel, otherwise leave as is
- */
-static void swapgs(interrupt_frame_t* frame) {
-    if (frame->cs != GDT_KERNEL_CODE) {
-        asm("swapgs");
-    }
-}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////but
 // Exception dumping
@@ -178,11 +168,29 @@ static void common_exception_handler(interrupt_frame_t* frame, uint64_t error, u
 static void page_fault_handler(interrupt_frame_t* frame, uint64_t error_code) {
     swapgs(frame);
     void* fault_address = (void*)__readcr2();
+
+    // check the flags can popup in normal operation, if they
+    // shouldn't then we should really panic
+    uint64_t valid_flags = IA32_PF_EC_USER | IA32_PF_EC_WRITE | IA32_PF_EC_PROT | IA32_PF_EC_INSTR;
+    if (UNLIKELY((error_code & valid_flags) != error_code)) {
+        panic_exception_handler(frame, error_code, EXCEPT_IA32_PAGE_FAULT);
+    }
+
+    virt_fault_flags_t flags = 0;
+    if (error_code & IA32_PF_EC_PROT)
+        flags |= VIRT_FAULT_PRESENT;
+    if (error_code & IA32_PF_EC_WRITE)
+        flags |= VIRT_FAULT_WRITE;
+    if (error_code & IA32_PF_EC_USER)
+        flags |= VIRT_FAULT_USER;
+    if (error_code & IA32_PF_EC_INSTR)
+        flags |= VIRT_FAULT_INSTR;
+
     if (frame->rflags & RFLAGS_IF) {
         irq_enable();
     }
 
-    if (UNLIKELY(IS_ERROR(virt_page_fault_handler(fault_address, error_code)))) {
+    if (UNLIKELY(IS_ERROR(virt_page_fault_handler(fault_address, flags)))) {
         panic_exception_handler(frame, error_code, EXCEPT_IA32_PAGE_FAULT);
     }
 

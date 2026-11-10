@@ -1,4 +1,3 @@
-OUTPUT_FORMAT(elf64-x86-64)
 ENTRY(_start)
 
 PHDRS
@@ -68,6 +67,11 @@ SECTIONS
 
     .rodata : {
         *(.rodata .rodata.*)
+    } :rodata
+
+    /* the kernel is linked statically, so the GOT is never written */
+    .got : {
+        *(.got)
     } :rodata
 
     . = ALIGN(CONSTANT(MAXPAGESIZE));

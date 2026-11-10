@@ -24,11 +24,14 @@ CLANG_INCLUDE_DIR = shell("clang --print-file-name=include", strip=True)
 # Set the cflags we use
 match ARCH:
     case "x86_64":
+        target_flags = [
+            "-target",
+            "x86_64-none-elf",
+            "-march=x86-64-v3",
+        ]
+
         c.cflags.add(
             [
-                "-target",
-                "x86_64-none-elf",
-                "-march=x86-64-v3",
                 # Kernel ABI
                 "-mgeneral-regs-only",
                 "-mno-red-zone",
@@ -38,11 +41,14 @@ match ARCH:
         )
 
     case "aarch64":
+        target_flags = [
+            "-target",
+            "aarch64-none-elf",
+            "-march=armv8.2-a",
+        ]
+
         c.cflags.add(
             [
-                "-target",
-                "aarch64-none-elf",
-                "-march=armv8.2-a",
                 # Kernel ABI
                 "-mgeneral-regs-only",
             ]
@@ -50,6 +56,20 @@ match ARCH:
 
     case _:
         raise ValueError(f"Unknown arch {ARCH}")
+
+c.cflags.add(target_flags)
+
+# The assembly files don't get the cflags, so give them the
+# target and the include paths for the shared headers
+c.asflags.add(
+    [
+        *target_flags,
+        "-Iinclude",
+        "-Isrc",
+        f"-Isrc/arch/{ARCH}",
+        "-g",
+    ]
+)
 
 
 c.cflags.add(
@@ -109,6 +129,9 @@ c.ldflags.add(
         "-Wl,--build-id=none",
         # Add our linker script
         "-Tsrc/linker.lds",
+        # The linker script aligns the sections to the max page size and counts them in
+        # pages, so it must match our page size (lld defaults to 64kb on aarch64)
+        "-Wl,-z,max-page-size=4096",
         # Keep the relocations so we can check nothing references init code
         "-Wl,--emit-relocs",
     ]
@@ -263,32 +286,42 @@ limine_fetch = Rule(
     },
 )
 
-# We only care about the x86-64 pieces, the release also carries the other
-# architectures, the cd/pxe stages and the headers
-limine_source, limine_bios_sys, limine_bootx64 = limine_fetch.build(
-    "limine/limine.c",
-    "limine/limine-bios.sys",
-    "limine/BOOTX64.EFI",
-)
+# We only care about the pieces for our architecture, the release also carries the
+# other architectures, the cd/pxe stages and the headers
+match ARCH:
+    case "x86_64":
+        limine_source, limine_bios_sys, limine_efi = limine_fetch.build(
+            "limine/limine.c",
+            "limine/limine-bios.sys",
+            "limine/BOOTX64.EFI",
+        )
 
-# The only prebuilt deploy tool in the release is for windows, everywhere else
-# it has to be built from the limine.c that ships next to it.
-#
-# This is a host binary and not part of the kernel, so scope the toolchain back
-# to the host and replace the kernel flags with the ones from the Makefile that
-# ships alongside limine.c.
-with (
-    c.toolchain(ccbin=config("HOSTCC", default="cc"), arbin="ar"),
-    c.cflags.set(
-        [
-            "-std=c99",
-            "-D_FILE_OFFSET_BITS=64",
-            "-O2",
-        ]
-    ),
-    c.ldflags.set([]),
-):
-    limine_tool = c.binary(name="limine-tool", sources=[limine_source])
+        # The only prebuilt deploy tool in the release is for windows, everywhere else
+        # it has to be built from the limine.c that ships next to it.
+        #
+        # This is a host binary and not part of the kernel, so scope the toolchain back
+        # to the host and replace the kernel flags with the ones from the Makefile that
+        # ships alongside limine.c.
+        #
+        # It is only needed to install the BIOS stages, so only x86-64 needs it.
+        with (
+            c.toolchain(ccbin=config("HOSTCC", default="cc"), arbin="ar"),
+            c.cflags.set(
+                [
+                    "-std=c99",
+                    "-D_FILE_OFFSET_BITS=64",
+                    "-O2",
+                ]
+            ),
+            c.asflags.set([]),
+            c.ldflags.set([]),
+        ):
+            limine_tool = c.binary(name="limine-tool", sources=[limine_source])
+
+    case "aarch64":
+        (limine_efi,) = limine_fetch.build(
+            "limine/BOOTAA64.EFI",
+        )
 
 
 ################################################################################
@@ -301,40 +334,71 @@ IMAGE_SIZE = "64M"
 # The limine boot menu configuration
 LIMINE_CONF = Path("limine.conf")
 
-# Build a disk image that boots on both BIOS and UEFI.
-#
 # The table is laid out as GPT and then converted to MBR (sgdisk `-m`), which
 # is what limine wants on x86-64: plenty of BIOS/CSM implementations refuse to
-# boot off of GPT, while UEFI is happy to take an ESP on an MBR disk. The BIOS
-# stages then go into the MBR and the gap in front of the partition, and the
-# UEFI executables into the ESP, so the same image boots either way.
+# boot off of GPT, while UEFI is happy to take an ESP on an MBR disk. The UEFI
+# executables go into the ESP.
 #
 # Everything is done with mtools so that no loop device or root is needed.
-limine_image = Rule(
-    "rm -f $out"
-    " && truncate -s $size $out"
-    " && PATH=$$PATH:/usr/sbin:/sbin sgdisk $out -n 1:2048 -t 1:ef00 -m 1 > /dev/null"
-    " && $limine bios-install --quiet $out"
-    " && mformat -i $out@@1M"
-    " && mmd -i $out@@1M ::/EFI ::/EFI/BOOT ::/boot ::/boot/limine"
-    " && mcopy -i $out@@1M $kernel ::/boot"
-    " && mcopy -i $out@@1M $conf $biossys ::/boot/limine"
-    " && mcopy -i $out@@1M $efi ::/EFI/BOOT",
-    description="IMAGE",
-    variables={
-        "size": IMAGE_SIZE,
-    },
-)
+match ARCH:
+    case "x86_64":
+        # Build a disk image that boots on both BIOS and UEFI, the BIOS stages go
+        # into the MBR and the gap in front of the partition, so the same image
+        # boots either way.
+        limine_image = Rule(
+            "rm -f $out"
+            " && truncate -s $size $out"
+            " && PATH=$$PATH:/usr/sbin:/sbin sgdisk $out -n 1:2048 -t 1:ef00 -m 1 > /dev/null"
+            " && $limine bios-install --quiet $out"
+            " && mformat -i $out@@1M"
+            " && mmd -i $out@@1M ::/EFI ::/EFI/BOOT ::/boot ::/boot/limine"
+            " && mcopy -i $out@@1M $kernel ::/boot"
+            " && mcopy -i $out@@1M $conf $biossys ::/boot/limine"
+            " && mcopy -i $out@@1M $efi ::/EFI/BOOT",
+            description="IMAGE",
+            variables={
+                "size": IMAGE_SIZE,
+            },
+        )
 
-image = limine_image.build(
-    "tomato.hdd",
-    inputs=[kernel, LIMINE_CONF, limine_bios_sys, limine_bootx64],
-    implicit=[limine_tool, init_refs_stamp],
-    variables={
-        "limine": limine_tool,
-        "kernel": kernel,
-        "conf": LIMINE_CONF,
-        "biossys": limine_bios_sys,
-        "efi": limine_bootx64,
-    },
-)
+        image = limine_image.build(
+            "tomato.hdd",
+            inputs=[kernel, LIMINE_CONF, limine_bios_sys, limine_efi],
+            implicit=[limine_tool, init_refs_stamp],
+            variables={
+                "limine": limine_tool,
+                "kernel": kernel,
+                "conf": LIMINE_CONF,
+                "biossys": limine_bios_sys,
+                "efi": limine_efi,
+            },
+        )
+
+    case "aarch64":
+        # Build a disk image that boots on UEFI, which is the only way to boot
+        # limine on aarch64.
+        limine_image = Rule(
+            "rm -f $out"
+            " && truncate -s $size $out"
+            " && PATH=$$PATH:/usr/sbin:/sbin sgdisk $out -n 1:2048 -t 1:ef00 -m 1 > /dev/null"
+            " && mformat -i $out@@1M"
+            " && mmd -i $out@@1M ::/EFI ::/EFI/BOOT ::/boot ::/boot/limine"
+            " && mcopy -i $out@@1M $kernel ::/boot"
+            " && mcopy -i $out@@1M $conf ::/boot/limine"
+            " && mcopy -i $out@@1M $efi ::/EFI/BOOT",
+            description="IMAGE",
+            variables={
+                "size": IMAGE_SIZE,
+            },
+        )
+
+        image = limine_image.build(
+            "tomato.hdd",
+            inputs=[kernel, LIMINE_CONF, limine_efi],
+            implicit=[init_refs_stamp],
+            variables={
+                "kernel": kernel,
+                "conf": LIMINE_CONF,
+                "efi": limine_efi,
+            },
+        )

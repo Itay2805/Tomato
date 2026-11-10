@@ -1,7 +1,7 @@
 #include "object.h"
+#include "debug/trace.h"
 #include "lib/assert.h"
 #include "lib/container_of.h"
-#include "lib/trace.h"
 #include "mem/vmar.h"
 
 #include "thread/thread.h"

@@ -5,6 +5,7 @@
 #include "lib/rbtree/rbtree.h"
 #include "lib/rbtree/rbtree_types.h"
 #include "lib/snprintf.h"
+#include "mem/pte.h"
 #include "sync/mutex.h"
 #include "sync/rwlock.h"
 #include "util/except.h"
@@ -31,6 +32,12 @@ typedef enum vmar_kind : uint8_t {
      * A VMAR that maps to memory, this is essentially a leaf that can have no children
      */
     VMAR_KIND_MAPPING,
+
+    /**
+     * A VMAR that maps to physical memory, this is essentially a leaf that can have no
+     * children
+     */
+    VMAR_KIND_PHYS_MAPPING,
 } vmar_kind_t;
 
 typedef enum vmar_role : uint8_t {
@@ -54,6 +61,49 @@ typedef enum vmar_role : uint8_t {
      */
     VMAR_ROLE_STACK_GUARD,
 } vmar_role_t;
+
+/**
+ * Memory permissions
+ */
+typedef enum vm_perm : uint8_t {
+    VM_PERM_RO,
+    VM_PERM_RW,
+    VM_PERM_RX,
+} vm_perm_t;
+
+/**
+ * The caching requirements
+ */
+typedef enum vm_cache : uint8_t {
+    /**
+     * Use hardware caching.
+     * - x86-64: WB
+     * - aarch64: Normal Memory, Outer Write-back non-transient Read and Write allocate, Inner
+     *            Write-back non-transient Read and Write allocate memory
+     */
+    VM_CACHE_CACHED,
+
+    /**
+     * Disable caching
+     * - x86-64: UC
+     * - aarch64: Device-nGnRnE memory attributes
+     */
+    VM_CACHE_UNCACHED,
+
+    /**
+     * Disable cache and treat as device memory
+     * - x86-64: UC-
+     * - aarch64: Device-nGnRE memory attributes
+     */
+    VM_CACHE_UNCACHED_DEVICE,
+
+    /**
+     * Uncached with write combining
+     * - x86-64: WC
+     * - aarch64: Normal memory, uncached memory attributes
+     */
+    VM_CACHE_WRITE_COMBINING,
+} vm_cache_t;
 
 typedef struct vmar {
     /**
@@ -126,6 +176,16 @@ typedef struct vmar {
              * range of the mapping
              */
             mutex_t page_table_lock;
+
+            /**
+             * The physical address that we are mapping
+             */
+            uint64_t phys_addr;
+
+            /**
+             * The caching required
+             */
+            vm_cache_t cache;
         } mapping;
     };
 } vmar_t;
@@ -142,15 +202,6 @@ static inline void vmar_set_name(vmar_t* vmar, const char* fmt, ...) {
 static inline void* vmar_end(const vmar_t* vmar) {
     return vmar->base + ((vmar->page_count * PAGE_SIZE) - 1);
 }
-
-/**
- * Memory permissions
- */
-typedef enum vm_perm {
-    VM_PERM_RO,
-    VM_PERM_RW,
-    VM_PERM_RX,
-} vm_perm_t;
 
 #define VMAR_ANY_OFFSET ((uintptr_t)-1)
 
@@ -189,6 +240,12 @@ err_t vmar_allocate(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t
  * Create an anonymous mapping, allocating new memory lazily as required
  */
 err_t vmar_map(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page_count);
+
+/**
+ * Create an anonymous mapping, allocating new memory lazily as required
+ */
+err_t vmar_map_phys(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page_count,
+                    uint64_t phys_addr, vm_cache_t cache);
 
 /**
  * Populate the entire vmar right now

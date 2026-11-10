@@ -1,5 +1,6 @@
 #include "vmar.h"
 #include "arch/virt.h"
+#include "debug/trace.h"
 #include "lib/assert.h"
 #include "lib/container_of.h"
 #include "lib/object.h"
@@ -7,9 +8,9 @@
 #include "lib/rbtree/rbtree_augmented.h"
 #include "lib/rbtree/rbtree_types.h"
 #include "lib/string.h"
-#include "lib/trace.h"
 #include "mem/accounting.h"
 #include "mem/alloc.h"
+#include "mem/pte.h"
 #include "mem/virt.h"
 #include "sync/mutex.h"
 #include "sync/rwlock.h"
@@ -307,6 +308,44 @@ err_t vmar_map(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page
     child->object.kind = OBJECT_KIND_VMAR;
     child->object.ref_count = 2;
     child->kind = VMAR_KIND_MAPPING;
+    child->mapping.cache = VM_CACHE_CACHED;
+    errdefer FREE(vmar_t, child);
+
+    rwlock_exclusive_guard(&m_vmar_lock);
+
+    // find for a place to put it
+    RETHROW(vmar_find_place(parent, child, offset, page_count));
+
+    // reserve the memory itself
+    RETHROW(mem_acct_reserve(page_count));
+    errdefer mem_acct_unreserve(page_count);
+
+    // now try to reserve the page tables for the range
+    RETHROW(virt_reserve_page_tables(child->base, child->page_count));
+
+    // success! we have enough memory, we can now link it and expose it
+    vmar_link_internal(parent, child);
+
+    *new_child = child;
+
+    return err;
+}
+
+err_t vmar_map_phys(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page_count,
+                    uint64_t phys_addr, vm_cache_t cache) {
+    err_t err = SUCCESS;
+
+    CHECK_ARG(parent->kind == VMAR_KIND_REGION);
+    CHECK_ARG(page_count != 0);
+
+    // allocate the new entry
+    vmar_t* child = ALLOC(vmar_t);
+    CHECK_ERROR(child != nullptr, OUT_OF_RESOURCES);
+    child->object.kind = OBJECT_KIND_VMAR;
+    child->object.ref_count = 2;
+    child->kind = VMAR_KIND_PHYS_MAPPING;
+    child->mapping.phys_addr = phys_addr;
+    child->mapping.cache = cache;
     errdefer FREE(vmar_t, child);
 
     rwlock_exclusive_guard(&m_vmar_lock);
@@ -326,7 +365,7 @@ err_t vmar_map(vmar_t* parent, vmar_t** new_child, uintptr_t offset, size_t page
 }
 
 err_t vmar_populate(vmar_t* vmar) {
-    CHECK_ARG(vmar->kind == VMAR_KIND_MAPPING);
+    CHECK_ARG(vmar->kind == VMAR_KIND_MAPPING || vmar->kind == VMAR_KIND_PHYS_MAPPING);
 
     // the shared lock will keep the vmar alive while the function is running
     rwlock_shared_guard(&m_vmar_lock);
@@ -338,8 +377,8 @@ err_t vmar_populate(vmar_t* vmar) {
     // the object must not be unmapped at this point
     CHECK(!vmar->unmapped);
 
-    // populate the entire vmar
-    virt_populate(vmar->base, vmar->page_count, vmar->locked);
+    // populate all the range
+    virt_populate(vmar->base, vmar->page_count, vmar);
 
     return SUCCESS;
 }
@@ -361,7 +400,8 @@ static void vmar_lock_internal(vmar_t* vmar) {
         } break;
 
         // make global
-        case VMAR_KIND_MAPPING: {
+        case VMAR_KIND_MAPPING:
+        case VMAR_KIND_PHYS_MAPPING: {
             mutex_guard(&vmar->mapping.page_table_lock);
             virt_make_global(vmar->base, vmar->page_count);
         } break;
@@ -421,7 +461,7 @@ vmar_t* vmar_find_mapping(vmar_t* root, void* address) {
         }
     } while (vmar->kind == VMAR_KIND_REGION);
 
-    if (vmar->kind != VMAR_KIND_MAPPING) {
+    if (vmar->kind != VMAR_KIND_MAPPING && vmar->kind != VMAR_KIND_PHYS_MAPPING) {
         return nullptr;
     }
 
@@ -481,6 +521,13 @@ static void vmar_unmap_internal(vmar_t* vmar) {
         mutex_guard(&vmar->mapping.page_table_lock);
 
         virt_free(vmar->base, vmar->page_count);
+
+    } else if (vmar->kind == VMAR_KIND_PHYS_MAPPING) {
+        // take the lock for the mapping, so no one can access
+        // it at the same time as we are modifying it
+        mutex_guard(&vmar->mapping.page_table_lock);
+
+        virt_unmap(vmar->base, vmar->page_count);
 
     } else if (vmar->kind == VMAR_KIND_SPECIAL) {
         ASSERT(!"Can't free special mappings");
@@ -573,6 +620,8 @@ static const char* vmar_kind_str(vmar_kind_t kind) {
             return "special";
         case VMAR_KIND_MAPPING:
             return "mapping";
+        case VMAR_KIND_PHYS_MAPPING:
+            return "phys-mapping";
         default:
             return "unknown";
     }

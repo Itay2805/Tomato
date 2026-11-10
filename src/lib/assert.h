@@ -1,7 +1,7 @@
 #pragma once
 
 #include "cpp_magic.h"
-#include "trace.h"
+#include "debug/trace.h"
 #include "util/defs.h"
 
 #define ASSERT(expr, ...)                                                                          \

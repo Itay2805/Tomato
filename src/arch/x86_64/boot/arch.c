@@ -1,13 +1,14 @@
-#include "arch.h"
+#include "boot/arch.h"
+#include "arch/apic.h"
 #include "arch/cpuid.h"
+#include "arch/intr.h"
 #include "arch/intrin.h"
 #include "arch/msr.h"
-#include "boot/gdt.h"
 #include "boot/virt.h"
-#include "irq/apic.h"
-#include "irq/intr.h"
+#include "gdt.h"
 #include "lib/assert.h"
 #include "mem/phys.h"
+#include "mem/tlb.h"
 #include "util/defs.h"
 #include <stdint.h>
 
@@ -127,6 +128,7 @@ void arch_init(void) {
     gdt_init(0);
     intr_init();
     lapic_init();
+    tlb_init();
 }
 
 void arch_init_per_core(size_t cpu_id) {
@@ -140,4 +142,5 @@ void arch_init_per_core(size_t cpu_id) {
     gdt_init(cpu_id);
     intr_init();
     lapic_init_per_core();
+    tlb_init_per_core();
 }

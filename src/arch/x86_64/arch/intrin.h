@@ -42,6 +42,22 @@ static inline void __invlpg(void* m) {
     asm volatile("invlpg (%0)" : : "b"(m) : "memory");
 }
 
+#define INVPCID_TYPE_INDIVIDUAL_ADDRESS       0
+#define INVPCID_TYPE_SINGLE_CONTEXT           1
+#define INVPCID_TYPE_ALL_CONTEXT_WITH_GLOBALS 2
+#define INVPCID_TYPE_ALL_CONTEXT              3
+
+static inline void __invpcid(uint64_t type, uint64_t pcid, void* address) {
+    struct {
+        uint64_t pcid;
+        uint64_t address;
+    } descriptor = { pcid, (uintptr_t)address };
+    asm volatile("invpcid %[descriptor], %[type]"
+                 :
+                 : [descriptor] "m"(descriptor), [type] "r"(type)
+                 : "memory");
+}
+
 static inline unsigned long __readcr0(void) {
     unsigned long value;
     __asm__ __volatile__("mov %%cr0, %[value]" : [value] "=q"(value));

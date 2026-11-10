@@ -49,7 +49,7 @@ thread_entry_thunk:
     popq %rsi
     jmp thread_entry_point
 
-.section .text.init
+.section .init.text, "ax", %progbits
 
 /**
  * void do_thread_bootstrap(thread_t* to);

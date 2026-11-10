@@ -76,7 +76,7 @@ typedef struct thread {
      * MUST NOT MOVE THE FIELD
      * offset 0
      */
-    void* kernel_rsp;
+    void* kernel_sp;
 
     /**
      * The object header of the thread
@@ -125,12 +125,6 @@ void thread_yield(void);
  * free a thread object
  */
 void thread_free(thread_t* thread);
-
-/**
- * The thunk that we should jump to
- * when starting a thread
- */
-void thread_entry_thunk(void);
 
 /**
  * Switching to another thread, saving

@@ -1,4 +1,5 @@
-#include "trace.h"
+#include "debug/trace.h"
+#include "debug/debugcon.h"
 #include "lib/snprintf.h"
 #include "sync/spinlock.h"
 #include <stdarg.h>
@@ -13,18 +14,17 @@ void _trace(const char* fmt, ...) {
     kvsnprintf(buffer, sizeof(buffer), fmt, ap);
     va_end(ap);
 
-    // TODO: something more generic/cross platform, how to abstract this?
     irq_spinlock_guard(&m_trace_lock);
 
     char* p = buffer;
     while (*p) {
         if (*p == '\t') {
-            __outbyte(0xE9, ' ');
-            __outbyte(0xE9, ' ');
-            __outbyte(0xE9, ' ');
-            __outbyte(0xE9, ' ');
+            debugcon_putc(' ');
+            debugcon_putc(' ');
+            debugcon_putc(' ');
+            debugcon_putc(' ');
         } else {
-            __outbyte(0xE9, *p);
+            debugcon_putc(*p);
         }
         p++;
     }

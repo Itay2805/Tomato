@@ -25,7 +25,6 @@ vmar_t g_buddy_bitmap_mapping = {
     .kind = VMAR_KIND_SPECIAL,
     .locked = true,
 };
-
 #define KERNEL_REGION(_name)                                                                       \
     extern char __##_name##_start[];                                                               \
     extern char __##_name##_page_count[];                                                          \

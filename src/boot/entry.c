@@ -1,12 +1,14 @@
+#include "arch/limine.h"
 #include "arch/virt.h"
 #include "boot/arch.h"
 #include "boot/random.h"
 #include "boot/virt.h"
+#include "debug/debugcon.h"
+#include "debug/trace.h"
 #include "lib/assert.h"
 #include "lib/object.h"
 #include "lib/snprintf.h"
 #include "lib/sp.h"
-#include "lib/trace.h"
 #include "limine.h"
 #include "mem/mapping.h"
 #include "mem/phys.h"
@@ -52,15 +54,25 @@ static volatile struct limine_bootloader_info_request g_bootloader_info_request 
 [[gnu::section(".limine_requests")]]
 static volatile struct limine_mp_request m_mp_request = {
     .id = LIMINE_MP_REQUEST_ID,
-#ifdef __x86_64__
-    .flags = LIMINE_MP_REQUEST_X86_64_X2APIC,
-#endif
+    .flags = LIMINE_MP_REQUEST_ARCH_FLAGS,
 };
+
+/**
+ * Set by the core being started once it is done initializing
+ */
+static atomic_bool m_core_init_finished = false;
 
 static void core_entry(struct limine_mp_info* info) {
     size_t cpu_id = info->extra_argument;
-    TRACE("\tCPU #%zu", cpu_id);
     arch_init_per_core(cpu_id);
+
+    // the debug console may only be mapped in our page tables, so
+    // only trace once the arch init switched to them
+    TRACE("\tCPU #%zu", cpu_id);
+
+    // let the BSP know we are done, starting the scheduler does not allocate
+    m_core_init_finished = true;
+
     sched_start_per_core();
 }
 
@@ -79,7 +91,7 @@ static void start_cores(void) {
     for (size_t i = 0; i < mp->cpu_count; i++) {
         struct limine_mp_info* info = mp->cpus[i];
 
-        if (info->lapic_id == mp->bsp_lapic_id) {
+        if (limine_mp_is_bsp(mp, info)) {
             info->extra_argument = 0;
 
             // this is the current core, nothing to do
@@ -88,7 +100,10 @@ static void start_cores(void) {
             info->extra_argument = cpu_id++;
 
             _Atomic(limine_goto_address)* goto_address = (void*)&info->goto_address;
+            m_core_init_finished = false;
             atomic_store_explicit(goto_address, core_entry, memory_order_release);
+            while (!m_core_init_finished)
+                ;
         }
     }
 
@@ -182,6 +197,8 @@ static void init_stack_guard(void) {
 }
 
 void _start(void) {
+    debugcon_init();
+
 #ifdef __DEBUG__
     TRACE("Tomato! (DEBUG)");
 #else

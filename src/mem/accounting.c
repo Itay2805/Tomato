@@ -1,6 +1,6 @@
 #include "accounting.h"
+#include "debug/trace.h"
 #include "lib/assert.h"
-#include "lib/trace.h"
 #include "util/atomic.h"
 #include "util/except.h"
 

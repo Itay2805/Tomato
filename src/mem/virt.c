@@ -1,12 +1,14 @@
 #include "virt.h"
 #include "arch/virt.h"
+#include "debug/trace.h"
 #include "irq/irq.h"
 #include "lib/assert.h"
 #include "lib/object.h"
-#include "lib/trace.h"
 #include "mem/accounting.h"
 #include "mem/mapping.h"
 #include "mem/phys.h"
+#include "mem/pte.h"
+#include "mem/tlb.h"
 #include "mem/vmar.h"
 #include "sync/mutex.h"
 #include "sync/rwlock.h"
@@ -17,12 +19,13 @@
 #include <stdint.h>
 
 LATE_RO void* g_page_table = nullptr;
+LATE_RO void* g_user_page_table = nullptr;
 LATE_RO size_t g_page_table_levels = 0;
 
 static _Atomic(uint64_t)* virt_get_next_level(_Atomic(uint64_t)* entry, bool alloc, bool user) {
     uint64_t value = atomic_load_acquire(entry);
 
-    if ((value & IA32_PG_P) == 0) {
+    if (!pte_is_present(value)) {
         ASSERT(alloc, "Expected page entry to be allocated, but was unallocated");
 
         void* phys = phys_alloc(PAGE_SIZE);
@@ -30,10 +33,7 @@ static _Atomic(uint64_t)* virt_get_next_level(_Atomic(uint64_t)* entry, bool all
             return nullptr;
         }
 
-        uint64_t new_entry = direct_to_phys(phys) | IA32_PG_P;
-        new_entry |= IA32_PG_RW;
-        if (user)
-            new_entry |= IA32_PG_U;
+        uint64_t new_entry = pte_table(direct_to_phys(phys), user);
 
         // attempt to set the new entry, if it failed it means someone else raced and set
         // the entry before us, so use their entry
@@ -44,14 +44,13 @@ static _Atomic(uint64_t)* virt_get_next_level(_Atomic(uint64_t)* entry, bool all
         }
     }
 
-    ASSERT(value & IA32_PG_P);
-    return phys_to_direct(value & PAGING_4K_ADDRESS_MASK);
+    ASSERT(pte_is_present(value));
+    return phys_to_direct(pte_address(value));
 }
 
 static _Atomic(uint64_t)* virt_get_pte(void* virt, bool alloc) {
-    _Atomic(uint64_t)* table = g_page_table;
-
     bool user = virt_is_user_address(virt);
+    _Atomic(uint64_t)* table = user ? g_user_page_table : g_page_table;
 
     for (int i = g_page_table_levels - 1; i >= 0; i--) {
         size_t shift = PAGING_INDEX_BITS * i + PAGE_SHIFT;
@@ -83,18 +82,14 @@ void virt_make_global(void* base, size_t page_count) {
         _Atomic(uint64_t)* pte = virt_get_pte(addr, false);
         ASSERT(pte != nullptr);
         uint64_t value = atomic_load_relaxed(pte);
-        if (value & IA32_PG_P) {
-            atomic_store_relaxed(pte, value | IA32_PG_G);
+        if (pte_is_present(value) && !pte_is_global(value)) {
+            pte_make_global(pte, addr);
         }
     }
 }
 
 err_t virt_reserve_page_tables(void* base, size_t page_count) {
     err_t err = SUCCESS;
-
-    // reserve the memory
-    RETHROW(mem_acct_reserve(page_count));
-    errdefer mem_acct_unreserve(page_count);
 
     for (size_t i = 0; i < page_count; i++) {
         void* addr = base + i * PAGE_SIZE;
@@ -104,8 +99,75 @@ err_t virt_reserve_page_tables(void* base, size_t page_count) {
     return err;
 }
 
-void virt_populate(void* base, size_t page_count, bool global) {
-    bool user = virt_is_user_address(base);
+/**
+ * The pages that back a mapping are only accessible through it, so they
+ * are taken out of the direct map for as long as they are mapped
+ */
+static void virt_direct_map_remove(tlb_invl_t* invl, void* page) {
+    _Atomic(uint64_t)* pte = virt_get_pte(page, false);
+    uint64_t value = atomic_load_relaxed(pte);
+    ASSERT(pte_is_present(value) && !pte_is_global(value));
+    atomic_store_relaxed(pte, 0);
+    tlb_invl_queue(invl, page, pte_is_global(value));
+}
+
+static void virt_direct_map_restore(void* page) {
+    _Atomic(uint64_t)* pte = virt_get_pte(page, false);
+    ASSERT(atomic_load_relaxed(pte) == 0);
+    atomic_store_relaxed(pte, pte_page(direct_to_phys(page), PTE_WRITE));
+
+    // the allocator uses it through the direct map right away
+    pte_barrier();
+}
+
+static pte_flags_t vmar_pte_flags(vmar_t* vmar) {
+    // populate the entire vmar
+    pte_flags_t flags = PTE_WRITE;
+
+    // if locked marked as global, it will never get unmapped
+    if (vmar->locked) {
+        flags |= PTE_GLOBAL;
+    }
+
+    // if a phys mapping and we need device caching then
+    // set it as such
+    if (vmar->kind == VMAR_KIND_PHYS_MAPPING || vmar->kind == VMAR_KIND_MAPPING) {
+        switch (vmar->mapping.cache) {
+            case VM_CACHE_CACHED:
+                break;
+
+            case VM_CACHE_UNCACHED_DEVICE:
+                flags |= PTE_DEVICE;
+                // fallthrough
+
+            case VM_CACHE_UNCACHED:
+                flags |= PTE_UNCACHED;
+                break;
+
+            case VM_CACHE_WRITE_COMBINING:
+                flags |= PTE_DEVICE;
+                break;
+
+            default:
+                ASSERT(!"Invalid caching mode");
+        }
+    }
+
+    return flags;
+}
+
+void virt_populate(void* base, size_t page_count, vmar_t* vmar) {
+    ASSERT(((uintptr_t)base % PAGE_SIZE) == 0);
+
+    pte_flags_t flags = vmar_pte_flags(vmar);
+    if (virt_is_user_address(base)) {
+        flags |= PTE_USER;
+    }
+
+    // the new pages hold nothing until we return, so they can be
+    // in both places until the direct map removal is committed
+    tlb_invl_t invl;
+    tlb_invl_start(&invl);
 
     for (size_t i = 0; i < page_count; i++) {
         void* addr = base + i * PAGE_SIZE;
@@ -116,31 +178,44 @@ void virt_populate(void* base, size_t page_count, bool global) {
 
         // ignore an entry that is already populated
         uint64_t value = atomic_load_acquire(pte);
-        if (value & IA32_PG_P) {
+        if (pte_is_present(value)) {
             continue;
         }
 
         // NOTE: we assume that the mapping lock is already taken, so we can't race
         //       on allocating this entry
-        void* phys = phys_alloc_reserved(PAGE_SIZE);
-        ASSERT(phys != nullptr);
+        uint64_t phys_addr;
+        if (vmar->kind == VMAR_KIND_MAPPING) {
+            // allocate a new page
+            void* phys = phys_alloc_reserved(PAGE_SIZE);
+            ASSERT(phys != nullptr);
+            virt_direct_map_remove(&invl, phys);
+            phys_addr = direct_to_phys(phys);
+
+        } else if (vmar->kind == VMAR_KIND_PHYS_MAPPING) {
+            // offset from the base phys page
+            size_t offset = (addr - vmar->base);
+            phys_addr = vmar->mapping.phys_addr + offset;
+
+        } else {
+            ASSERT(!"Invalid vmar kind");
+        }
 
         // setup the entry and publish it
-        uint64_t entry = direct_to_phys(phys) | IA32_PG_P | IA32_PG_A;
-        entry |= IA32_PG_RW | IA32_PG_D;
-        entry |= IA32_PG_NX;
-        if (global)
-            entry |= IA32_PG_G;
-        if (user)
-            entry |= IA32_PG_U;
-        atomic_store_release(pte, entry);
+        atomic_store_release(pte, pte_page(phys_addr, flags));
     }
+
+    // no core can see the new pages through the direct map once this returns
+    tlb_invl_commit(&invl);
+
+    // make sure the new pages can be used right away
+    pte_barrier();
 }
 
 #define CHECK_KILL(expr)                                                                           \
     do {                                                                                           \
         if (UNLIKELY(!(expr))) {                                                                   \
-            if ((error_code & IA32_PF_EC_USER)) {                                                  \
+            if ((flags & VIRT_FAULT_USER)) {                                                       \
                 ASSERT(!"kill the current thread");                                                \
             } else {                                                                               \
                 CHECK_FAIL(INTERNAL_ERROR);                                                        \
@@ -148,15 +223,10 @@ void virt_populate(void* base, size_t page_count, bool global) {
         }                                                                                          \
     } while (0)
 
-err_t virt_page_fault_handler(void* addr, uint64_t error_code) {
-    // check the flags can popup in normal operation, if they
-    // shouldn't then we should really panic
-    uint64_t valid_flags = IA32_PF_EC_USER | IA32_PF_EC_WRITE | IA32_PF_EC_PROT | IA32_PF_EC_INSTR;
-    CHECK((error_code & valid_flags) == error_code);
-
+err_t virt_page_fault_handler(void* addr, virt_fault_flags_t flags) {
     // find the correct root to use
     vmar_t* root = nullptr;
-    if (LIKELY(error_code & IA32_PF_EC_USER) || addr < g_kernel_region.base) {
+    if (LIKELY(flags & VIRT_FAULT_USER) || addr < g_kernel_region.base) {
         // either a user access or an access below the kernel region
         root = &g_user_region;
     } else {
@@ -174,32 +244,19 @@ err_t virt_page_fault_handler(void* addr, uint64_t error_code) {
     }
 
     // we should never get a protection fault
-    CHECK_KILL((error_code & IA32_PF_EC_PROT) == 0);
-    CHECK_KILL((error_code & IA32_PF_EC_INSTR) == 0);
+    CHECK_KILL((flags & VIRT_FAULT_PRESENT) == 0);
+    CHECK_KILL((flags & VIRT_FAULT_INSTR) == 0);
 
     // populate a single page
-    virt_populate(addr, 1, vmar->locked);
+    virt_populate(addr, 1, vmar);
 
     return SUCCESS;
 }
 
-static void tlb_invl_start(void) {
-    // TODO: mark that we start invalidating, maybe
-    //       taking some lock
-}
-
-static void tlb_invl_queue(void* addr) {
-    // might as well flush it normally on our core
-    __invlpg(addr);
-}
-
-static void tlb_invl_commit(void) {
-    // TODO: tell other cores and wait for them to finish flushing
-}
-
 void virt_free(void* base, size_t page_count) {
     // start doing tlb invalidations
-    tlb_invl_start();
+    tlb_invl_t invl;
+    tlb_invl_start(&invl);
 
     // start by going over and invalidating the entire range to be unmapped
     size_t early_unreserve = 0;
@@ -211,16 +268,16 @@ void virt_free(void* base, size_t page_count) {
         // we should never try to free pages marked
         // as global directly, as that means they
         // are still pinned
-        ASSERT((value & IA32_PG_G) == 0);
+        ASSERT(!pte_is_global(value));
 
         if (value != 0) {
             // mask all bits but the address bits
-            uint64_t address = value & PAGING_4K_ADDRESS_MASK;
+            uint64_t address = pte_address(value);
             atomic_store_relaxed(pte, address);
-            tlb_invl_queue(addr);
+            tlb_invl_queue(&invl, addr, pte_is_global(value));
         } else {
-            // TODO: should we eagerly unreserve for each iteration? or is it
-            //       better to gather it like we do?
+            // we perform a single unreserve for all the non-allocated pages
+            // to save on atomic ops
             early_unreserve++;
         }
     }
@@ -230,7 +287,7 @@ void virt_free(void* base, size_t page_count) {
     mem_acct_unreserve(early_unreserve);
 
     // we are done invalidating the entire page table, commit that it is invalidated
-    tlb_invl_commit();
+    tlb_invl_commit(&invl);
 
     // now go over the page tables and actually free everything, no core should
     // be able to see these pages anymore
@@ -239,12 +296,41 @@ void virt_free(void* base, size_t page_count) {
         _Atomic(uint64_t)* pte = virt_get_pte(addr, false);
         uint64_t value = atomic_load_relaxed(pte);
 
-        // entry can't be accessed anymore, we can return it to the allocator
+        // entry can't be accessed anymore, we can return it to the allocator, which
+        // needs it back in the direct map
         if (value != 0) {
-            uint64_t address = value & PAGING_4K_ADDRESS_MASK;
+            uint64_t address = pte_address(value);
             ASSERT(address == value);
+            virt_direct_map_restore(phys_to_direct(address));
             phys_free(phys_to_direct(address), PAGE_SIZE);
             atomic_store_relaxed(pte, 0);
         }
     }
+}
+
+void virt_unmap(void* base, size_t page_count) {
+    // start doing tlb invalidations
+    tlb_invl_t invl;
+    tlb_invl_start(&invl);
+
+    // just unmap the entire range
+    for (size_t i = 0; i < page_count; i++) {
+        void* addr = base + i * PAGE_SIZE;
+        _Atomic(uint64_t)* pte = virt_get_pte(addr, false);
+        uint64_t value = atomic_load_relaxed(pte);
+
+        // we should never try to unmap pages marked
+        // as global directly, as that means they
+        // are still pinned
+        ASSERT(!pte_is_global(value));
+
+        if (value != 0) {
+            // just remove the pte
+            atomic_store_relaxed(pte, 0);
+            tlb_invl_queue(&invl, addr, pte_is_global(value));
+        }
+    }
+
+    // we are done invalidating the entire page table, commit that it is invalidated
+    tlb_invl_commit(&invl);
 }

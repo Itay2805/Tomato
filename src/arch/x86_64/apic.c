@@ -1,12 +1,13 @@
-#include "apic.h"
+#include "arch/apic.h"
 #include "arch/intr.h"
 #include "arch/msr.h"
-#include "irq/intr.h"
+#include "debug/trace.h"
 #include "irq/irq.h"
 #include "lib/assert.h"
-#include "lib/trace.h"
 #include "mem/mapping.h"
+#include "mem/vmar.h"
 #include "util/except.h"
+#include <stdint.h>
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // LAPIC driver
@@ -121,30 +122,32 @@ typedef union [[gnu::packed]] LOCAL_APIC_ICR_HIGH {
  */
 LATE_RO static bool m_x2apic_mode = false;
 
-// /**
-//  * The xAPIC base, when using xAPIC mode
-//  */
-// LATE_RO static uint8_t* m_xapic_base = NULL;
+/**
+ * The xAPIC base, when using xAPIC mode
+ */
+LATE_RO static uint8_t* m_xapic_base = NULL;
+
+/**
+ * Used to validate all cores have the same address
+ * TODO: should we enforce it?
+ */
+INIT_DATA static uint64_t m_xapic_base_phys = 0;
 
 DEFINE_CPU_LOCAL(, uint32_t, apic_id);
 
-// static uint32_t lapic_read(size_t offset) {
-//     if (m_x2apic_mode) {
-//         __asm__("" ::: "memory");
-//         return __rdmsr((offset >> 4) + X2APIC_MSR_BASE_ADDRESS);
-//     } else {
-//         ASSERT(!"TODO: xapic support");
-//         // return *((uint32_t*)(m_xapic_base + offset));
-//     }
-// }
+static uint32_t lapic_read(size_t offset) {
+    if (m_x2apic_mode) {
+        return __rdmsr((offset >> 4) + X2APIC_MSR_BASE_ADDRESS);
+    } else {
+        return *((volatile uint32_t*)(m_xapic_base + offset));
+    }
+}
 
 static void lapic_write(size_t offset, uint32_t value) {
     if (m_x2apic_mode) {
-        __asm__("" ::: "memory");
         __wrmsr((offset >> 4) + X2APIC_MSR_BASE_ADDRESS, value);
     } else {
-        ASSERT(!"TODO: xapic support");
-        // *((uint32_t*)(m_xapic_base + offset)) = value;
+        *((volatile uint32_t*)(m_xapic_base + offset)) = value;
     }
 }
 
@@ -167,9 +170,19 @@ INIT_CODE void lapic_init(void) {
         m_x2apic_mode = false;
         TRACE("apic: using xapic");
 
+        // get the address
+        m_xapic_base_phys = apic_base.apic_base << 12;
+
         // make sure the apic is mapped properly, according to the spec the
         // range should be marked as "Strong Uncacheable"
-        ASSERT(!"TODO: xapic support");
+        vmar_t* xapic_vmar = nullptr;
+        ASSERT_SUCCESS(vmar_map_phys(&g_kernel_region, &xapic_vmar, VMAR_ANY_OFFSET, 1,
+                                     m_xapic_base_phys, VM_CACHE_UNCACHED_DEVICE));
+        vmar_set_name(xapic_vmar, "apic");
+        vmar_lock(xapic_vmar);
+        ASSERT_SUCCESS(vmar_populate(xapic_vmar));
+        m_xapic_base = xapic_vmar->base;
+        OBJECT_PUT(xapic_vmar);
     }
 
     // set the spurious interrupt handler
@@ -191,8 +204,11 @@ INIT_CODE void lapic_init_per_core(void) {
         // ensure we are using xapic across all cores, and that
         // the apic address is the same for all of them
         ASSERT(!m_x2apic_mode);
-        ASSERT(!"TODO: xapic support");
-        // CHECK(m_xapic_base == phys_to_direct(apic_base.apic_base << 12));
+
+        // validate the address is the same
+        uintptr_t addr = apic_base.apic_base << 12;
+        ASSERT(addr == m_xapic_base_phys, "Invalid APIC base 0x%lx != 0x%lx", addr,
+               m_xapic_base_phys);
     }
 
     // set the spurious vector
@@ -203,4 +219,46 @@ INIT_CODE void lapic_init_per_core(void) {
     lapic_write(XAPIC_SPURIOUS_VECTOR_OFFSET, svr.packed);
 
     // TODO: set the timer register
+}
+
+void lapic_eoi(void) {
+    lapic_write(XAPIC_EOI_OFFSET, 0);
+}
+
+static void lapic_send_ipi(uint32_t icr_low, uint32_t apic_id) {
+    if (m_x2apic_mode) {
+        uint64_t value = ((uint64_t)apic_id << 32) | icr_low;
+        __wrmsr(X2APIC_MSR_ICR_ADDRESS, value);
+    } else {
+        // disable interrupts while we perform this to make
+        // sure we can't have two people racing
+        irq_state_t state = irq_save();
+
+        // wait for delivery to be clear
+        LOCAL_APIC_ICR_LOW icr_low_reg = {};
+        do {
+            icr_low_reg.packed = lapic_read(XAPIC_ICR_LOW_OFFSET);
+        } while (icr_low_reg.delivery_status != 0);
+
+        LOCAL_APIC_ICR_HIGH icr_high_reg = { .destination = apic_id };
+
+        // we need to write the high and then the low, the low triggers the ipi
+        lapic_write(XAPIC_ICR_HIGH_OFFSET, icr_high_reg.packed);
+        lapic_write(XAPIC_ICR_LOW_OFFSET, icr_low);
+
+        // we won't wait for the dispatch to finish, just let it happen, we will
+        // poll it anyways if someone is trying to send something afterwards
+        irq_restore(state);
+    }
+}
+
+void lapic_send_ipi_all_excluding_self(uint8_t vector) {
+    LOCAL_APIC_ICR_LOW icr = {
+        .vector = vector,
+        .delivery_mode = LOCAL_APIC_DELIVERY_MODE_FIXED,
+        .level = 1,
+        .destination_shorthand = LOCAL_APIC_DESTINATION_SHORTHAND_ALL_EXCLUDING_SELF,
+    };
+    // the destination is ignored when using a shorthand
+    lapic_send_ipi(icr.packed, 0);
 }

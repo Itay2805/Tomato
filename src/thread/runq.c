@@ -1,8 +1,8 @@
 #include "runq.h"
 
+#include "debug/trace.h"
 #include "irq/irq.h"
 #include "lib/list.h"
-#include "lib/trace.h"
 #include "sync/smp.h"
 #include "thread/thread.h"
 
